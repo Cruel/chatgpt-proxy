@@ -13,12 +13,15 @@
   },
   "exports": {
     ".": "./dist/index.js",
-    "./api": "./dist/api/schemas.js",
-    "./browser": "./dist/browser/adapter.js",
+    "./api": "./dist/api/index.js",
+    "./browser": "./dist/browser/index.js",
+    "./cli": "./dist/cli/index.js",
     "./config": "./dist/config/index.js",
     "./db": "./dist/db/index.js",
     "./domain": "./dist/domain/index.js",
-    "./scheduler": "./dist/scheduler/index.js"
+    "./runtime": "./dist/runtime.js",
+    "./scheduler": "./dist/scheduler/index.js",
+    "./service": "./dist/service/index.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -32,11 +35,13 @@
     "test:live": "tsx scripts/run-live-tests.ts",
     "test:live:delete": "tsx scripts/run-live-tests.ts --delete",
     "acceptance:live": "tsx scripts/run-live-tests.ts --acceptance",
-    "cli": "tsx src/cli/main.ts"
+    "cli": "tsx src/cli/main.ts",
+    "server:fake": "tsx src/server-main.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
     "commander": "^15.0.0",
+    "fastify": "^5.10.0",
     "pino": "^10.3.1",
     "smol-toml": "^1.7.0",
     "zod": "^4.4.3"

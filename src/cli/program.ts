@@ -1,5 +1,6 @@
 import { Command, InvalidArgumentError, Option } from "commander";
 
+import { APP_VERSION } from "../version.js";
 import type {
   CliCommandExecutor,
   CliGlobalOptions,
@@ -101,7 +102,7 @@ async function execute(
 export function createCliProgram(executor: CliCommandExecutor): Command {
   const program = new Command("cgpt")
     .description("Control the local ChatGPT Playwright proxy")
-    .version("0.1.0")
+    .version(APP_VERSION)
     .option(
       "--server-url <url>",
       "proxy base URL",

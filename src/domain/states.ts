@@ -50,10 +50,15 @@ export const BROWSER_STATUSES = [
 ] as const;
 
 export const API_ERROR_CODES = [
+  "unauthorized",
+  "invalid_request",
+  "thread_already_exists",
+  "idempotency_conflict",
   "auth_required",
   "verification_required",
   "project_not_found",
   "thread_not_found",
+  "run_not_found",
   "thread_deleted",
   "thread_busy",
   "input_too_large",

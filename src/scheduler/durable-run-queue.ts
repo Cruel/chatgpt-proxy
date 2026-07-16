@@ -1,6 +1,7 @@
 import type { Logger } from "pino";
 
 import type { RunRecord } from "../domain/models.js";
+import { isCompletedRunState } from "../domain/run-transitions.js";
 import type {
   ApiErrorCode,
   SubmissionState,
@@ -87,6 +88,13 @@ export class DurableRunQueue {
     readonly promise: Promise<void>;
   }>();
   private readonly idleWaiters = new Set<() => void>();
+  private readonly runWaiters = new Map<
+    string,
+    Set<{
+      readonly resolve: (run: RunRecord) => void;
+      readonly reject: (error: Error) => void;
+    }>
+  >();
   private started = false;
   private closed = false;
   private pumpScheduled = false;
@@ -172,9 +180,42 @@ export class DurableRunQueue {
     });
   }
 
+  public waitForRun(runId: string): Promise<RunRecord> {
+    const current = this.persistence.runs.getRequiredById(runId);
+    if (this.isWaitTerminal(current)) {
+      return Promise.resolve(current);
+    }
+    if (this.closed) {
+      return Promise.reject(new QueueClosedError());
+    }
+
+    return new Promise<RunRecord>((resolve, reject) => {
+      const waiter = { resolve, reject };
+      const waiters = this.runWaiters.get(runId) ?? new Set();
+      waiters.add(waiter);
+      this.runWaiters.set(runId, waiters);
+
+      const rechecked = this.persistence.runs.getRequiredById(runId);
+      if (this.isWaitTerminal(rechecked)) {
+        waiters.delete(waiter);
+        if (waiters.size === 0) {
+          this.runWaiters.delete(runId);
+        }
+        resolve(rechecked);
+      }
+    });
+  }
+
   public async close(): Promise<void> {
     this.closed = true;
     await Promise.all([...this.inFlight.values()].map((entry) => entry.promise));
+    const closeError = new QueueClosedError();
+    for (const waiters of this.runWaiters.values()) {
+      for (const waiter of waiters) {
+        waiter.reject(closeError);
+      }
+    }
+    this.runWaiters.clear();
     this.resolveIdleWaiters();
   }
 
@@ -288,6 +329,7 @@ export class DurableRunQueue {
       this.persistence.runEvents.append(runId, "run_failed_unexpectedly", {
         message,
       });
+      this.notifyRunWaiters(runId);
       this.logger.error({ error, runId }, "run executor threw unexpectedly");
     }
   }
@@ -311,6 +353,7 @@ export class DurableRunQueue {
     this.persistence.runEvents.append(runId, "run_finished", {
       outcome: result.outcome,
     });
+    this.notifyRunWaiters(runId);
   }
 
   private isIdle(): boolean {
@@ -326,5 +369,25 @@ export class DurableRunQueue {
       resolve();
     }
     this.idleWaiters.clear();
+  }
+
+  private isWaitTerminal(run: RunRecord): boolean {
+    return run.state === "needs_attention" || isCompletedRunState(run.state);
+  }
+
+  private notifyRunWaiters(runId: string): void {
+    const waiters = this.runWaiters.get(runId);
+    if (waiters === undefined) {
+      return;
+    }
+    const run = this.persistence.runs.getRequiredById(runId);
+    if (!this.isWaitTerminal(run)) {
+      return;
+    }
+
+    this.runWaiters.delete(runId);
+    for (const waiter of waiters) {
+      waiter.resolve(run);
+    }
   }
 }

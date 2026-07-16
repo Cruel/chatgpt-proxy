@@ -86,4 +86,16 @@ export class ArtifactRepository {
       .all({ runId })
       .map(mapArtifactRow);
   }
+
+  public countByThread(threadId: string): number {
+    const row = this.database
+      .prepare<{ threadId: string }, { count: number }>(`
+        SELECT COUNT(*) AS count
+        FROM artifacts
+        INNER JOIN runs ON runs.id = artifacts.run_id
+        WHERE runs.thread_id = @threadId
+      `)
+      .get({ threadId });
+    return row?.count ?? 0;
+  }
 }

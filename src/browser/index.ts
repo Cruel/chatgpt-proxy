@@ -16,3 +16,8 @@ export type {
   RemoteDeletionResult,
   SendMessageInput,
 } from "./adapter.js";
+export {
+  FakeBrowserAdapter,
+  type FakeBrowserAdapterOptions,
+  type FakeConversation,
+} from "./fake/index.js";

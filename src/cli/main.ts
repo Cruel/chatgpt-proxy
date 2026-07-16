@@ -2,21 +2,11 @@
 
 import { CommanderError } from "commander";
 
-import type { CliCommandExecutor } from "./contracts.js";
+import { CliHttpError, HttpCliExecutor } from "./http-client.js";
 import { runCli } from "./program.js";
 
-const unavailableExecutor: CliCommandExecutor = {
-  execute(invocation) {
-    return Promise.reject(
-      new Error(
-        `The '${invocation.command.kind}' HTTP client is implemented in Phase 3`,
-      ),
-    );
-  },
-};
-
 try {
-  await runCli(process.argv.slice(2), unavailableExecutor);
+  await runCli(process.argv.slice(2), new HttpCliExecutor());
 } catch (error) {
   if (
     error instanceof CommanderError &&
@@ -25,7 +15,12 @@ try {
   ) {
     process.exitCode = 0;
   } else {
-    const message = error instanceof Error ? error.message : String(error);
+    const message =
+      error instanceof CliHttpError
+        ? error.formatForStderr()
+        : error instanceof Error
+          ? error.message
+          : String(error);
     process.stderr.write(`${message}\n`);
     process.exitCode = 1;
   }

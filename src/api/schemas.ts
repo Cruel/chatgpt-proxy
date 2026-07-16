@@ -127,6 +127,16 @@ export const mutationAcceptedResponseSchema = z.strictObject({
 
 export const runStatusResponseSchema = z.strictObject({
   run: runSummarySchema,
+  deletion: z
+    .strictObject({
+      remoteRequested: z.boolean(),
+      remotePermitted: z.boolean(),
+      remoteOutcome: z
+        .enum(["deleted", "already_absent", "ambiguous"])
+        .nullable(),
+      localTombstoned: z.boolean(),
+    })
+    .nullable(),
 });
 
 export const apiErrorResponseSchema = z.strictObject({

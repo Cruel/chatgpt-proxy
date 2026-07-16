@@ -6,3 +6,6 @@ export * from "./db/index.js";
 export * from "./domain/index.js";
 export * from "./logging/index.js";
 export * from "./scheduler/index.js";
+export * from "./service/index.js";
+export * from "./runtime.js";
+export { APP_VERSION } from "./version.js";
