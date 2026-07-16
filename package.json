@@ -29,6 +29,7 @@
     "browser:install:with-deps": "playwright install --with-deps chromium",
     "browser:install:chrome": "playwright install chrome",
     "browser:profile-login": "tsx scripts/bootstrap-browser-profile.ts",
+    "fixture:import": "tsx scripts/import-diagnostic-fixture.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "pnpm test:unit && pnpm test:integration && pnpm test:browser-fixtures",

@@ -3,7 +3,7 @@
 A local, single-user service that will expose a small HTTP API and CLI over a
 persistent Playwright-controlled ChatGPT browser session.
 
-The repository currently contains the Phase 1 through Phase 5 foundations:
+The repository currently contains the Phase 1 through Phase 6 foundations:
 validated TOML configuration, domain contracts, versioned SQLite persistence,
 durable scheduling, bounded cross-thread concurrency, same-thread serialization,
 restart reconciliation, bearer-authenticated Fastify endpoints, a complete HTTP
@@ -11,8 +11,10 @@ CLI, conservative deletion behavior, a deterministic fake browser adapter, a
 persistent Playwright Chromium lifecycle with login-state gating, bounded tab
 leasing, profile reuse, and automatic browser recovery, plus real project
 navigation, conversation creation and continuation, submission confirmation,
-tool-progress filtering, and final-response extraction. Remote conversation
-deletion remains deferred to Phase 7.
+tool-progress filtering, final-response extraction, selector and error
+registries, non-duplicating submission/response recovery, persisted diagnostic
+artifacts, retention pruning, and a sanitized fixture-corpus workflow. Remote
+conversation deletion remains deferred to Phase 7.
 
 ## Development
 
@@ -80,6 +82,31 @@ The first run opens headed Playwright Chromium using `profile_dir`. Complete
 ChatGPT login or browser verification in that window. The HTTP server remains
 available while queued mutations stay paused until the configured project page
 is recognized as authenticated.
+
+## Diagnostics and recovery
+
+Unexpected browser failures can capture a full-page PNG, HTML snapshot,
+bounded JSON DOM/selector metadata, console and failed-request summaries, and a
+Playwright trace ZIP according to `[diagnostics]` in `config.toml`. Files are
+written under `artifact_dir` with mode `0600`; their SHA-256 hashes and paths are
+recorded in SQLite. Artifacts older than `retain_days` are pruned at startup.
+
+Ambiguous submissions are never retried by sending the prompt again. Recovery
+reopens the known conversation and proceeds only when the latest remote user
+turn exactly matches the requested message. The same inspection path recovers a
+completed response after the original page or response wait was interrupted.
+
+Convert a captured HTML artifact into a reviewed regression fixture with:
+
+```bash
+pnpm fixture:import -- \
+  --artifact .artifacts/<run>/<capture>.html \
+  --name descriptive-regression-name
+```
+
+The importer strips scripts and common account, token, path, project,
+conversation, and URL-query identifiers. Review the generated file under
+`tests/fixtures/chatgpt/` before committing it.
 
 In another terminal, pass the configured token to the CLI:
 

@@ -11,10 +11,12 @@ import type {
   RunExecutionResult,
   RunExecutor,
 } from "../scheduler/durable-run-queue.js";
+import type { DiagnosticArtifactStore } from "./diagnostic-artifact-store.js";
 
 export interface BrowserRunExecutorOptions {
   readonly adapter: BrowserAdapter;
   readonly config: AppConfig;
+  readonly artifactStore: DiagnosticArtifactStore;
 }
 
 function failureOutcome(
@@ -68,10 +70,12 @@ function failureThreadState(result: RunExecutionResult): ThreadState {
 export class BrowserRunExecutor implements RunExecutor {
   private readonly adapter: BrowserAdapter;
   private readonly config: AppConfig;
+  private readonly artifactStore: DiagnosticArtifactStore;
 
   public constructor(options: BrowserRunExecutorOptions) {
     this.adapter = options.adapter;
     this.config = options.config;
+    this.artifactStore = options.artifactStore;
   }
 
   public async execute(
@@ -89,6 +93,16 @@ export class BrowserRunExecutor implements RunExecutor {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      await this.captureFailureDiagnostics(
+        run,
+        {
+          code: "unexpected_state",
+          message,
+          retryable: false,
+          observedUrl: null,
+        },
+        context,
+      );
       const thread = context.persistence.threads.getRequiredById(run.threadId);
       if (thread.state !== "delete_pending") {
         context.persistence.threads.setState(
@@ -140,6 +154,7 @@ export class BrowserRunExecutor implements RunExecutor {
     );
 
     if (!result.ok) {
+      await this.captureFailureDiagnostics(run, result.error, context);
       if (result.error.code === "submission_ambiguous") {
         context.updateProgress({
           state: "submitting",
@@ -210,6 +225,7 @@ export class BrowserRunExecutor implements RunExecutor {
       },
     );
     if (!result.ok) {
+      await this.captureFailureDiagnostics(run, result.error, context);
       if (result.error.code === "submission_ambiguous") {
         context.updateProgress({
           state: "submitting",
@@ -331,6 +347,7 @@ export class BrowserRunExecutor implements RunExecutor {
     });
 
     if (!result.ok) {
+      await this.captureFailureDiagnostics(run, result.error, context);
       const outcome = failureOutcome(result.error);
       context.persistence.threads.setState(
         thread.id,
@@ -369,6 +386,77 @@ export class BrowserRunExecutor implements RunExecutor {
       throw new Error(`Run '${run.id}' is missing required input text`);
     }
     return run.inputText;
+  }
+
+  private async captureFailureDiagnostics(
+    run: RunRecord,
+    failure: BrowserAdapterFailure,
+    context: RunExecutionContext,
+  ): Promise<void> {
+    const current = context.persistence.runs.getRequiredById(run.id);
+    const diagnosticContext = {
+      runId: run.id,
+      threadId: run.threadId,
+      signal: context.signal,
+    };
+    const captured = await this.adapter
+      .captureDiagnostics(
+        {
+          runId: run.id,
+          phase: current.phase,
+          includeScreenshot:
+            this.config.diagnostics.captureScreenshotOnError,
+          includeHtml: this.config.diagnostics.captureHtmlOnError,
+          includeTrace: this.config.diagnostics.captureTraceOnError,
+        },
+        diagnosticContext,
+      )
+      .catch((error: unknown) => ({
+        ok: false as const,
+        error: {
+          code: "unexpected_state" as const,
+          message: error instanceof Error ? error.message : String(error),
+          retryable: false,
+          observedUrl: null,
+        },
+      }));
+
+    if (!captured.ok) {
+      context.recordEvent("diagnostic_capture_failed", {
+        failure_code: failure.code,
+        capture_error_code: captured.error.code,
+        capture_error_message: captured.error.message,
+      });
+      return;
+    }
+
+    try {
+      const artifacts = await this.artifactStore.persist(
+        run.id,
+        current.phase,
+        captured.value,
+      );
+      if (artifacts.length === 0) {
+        return;
+      }
+      context.recordEvent("diagnostic_artifacts_captured", {
+        failure_code: failure.code,
+        phase: current.phase,
+        submission_state: current.submissionState,
+        artifacts: artifacts.map((artifact) => ({
+          id: artifact.id,
+          type: artifact.artifactType,
+          path: artifact.path,
+          sha256: artifact.sha256,
+          size_bytes: artifact.sizeBytes,
+        })),
+      });
+    } catch (error) {
+      context.recordEvent("diagnostic_persistence_failed", {
+        failure_code: failure.code,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private restoreThreadReadyState(

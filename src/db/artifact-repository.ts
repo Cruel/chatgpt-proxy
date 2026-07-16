@@ -98,4 +98,23 @@ export class ArtifactRepository {
       .get({ threadId });
     return row?.count ?? 0;
   }
+
+  public listCreatedBefore(cutoff: string): readonly ArtifactRecord[] {
+    return this.database
+      .prepare<{ cutoff: string }, ArtifactRow>(`
+        SELECT * FROM artifacts
+        WHERE created_at < @cutoff
+        ORDER BY created_at, id
+      `)
+      .all({ cutoff })
+      .map(mapArtifactRow);
+  }
+
+  public deleteById(id: string): boolean {
+    return this.database
+      .prepare<{ id: string }>(`
+        DELETE FROM artifacts WHERE id = @id
+      `)
+      .run({ id }).changes > 0;
+  }
 }

@@ -33,12 +33,18 @@ import {
   extractAssistantTurnText,
   waitForFinalAssistantResponse,
 } from "./completion-detector.js";
+import {
+  captureFailureDiagnostics,
+  observePageDiagnostics,
+  type PageDiagnosticObservation,
+} from "./diagnostics.js";
 import { detectBlockingFailure } from "./error-detector.js";
 import { submitMessage } from "./message-submission.js";
 import {
   openExistingConversation,
   openProjectForNewConversation,
 } from "./project-navigation.js";
+import { recoverSubmittedConversation } from "./recovery.js";
 import {
   CHATGPT_SELECTORS,
   anyVisible,
@@ -52,6 +58,9 @@ export interface ChatGptBrowserAdapterOptions {
   readonly submissionTimeoutMs?: number;
   readonly pollIntervalMs?: number;
   readonly stableContentMs?: number;
+  readonly captureScreenshotOnError?: boolean;
+  readonly captureHtmlOnError?: boolean;
+  readonly captureTraceOnError?: boolean;
 }
 
 function blockedFailure(error: unknown): BrowserAdapterFailure {
@@ -101,6 +110,25 @@ function shouldDiscardPage(failure: BrowserAdapterFailure): boolean {
   ].includes(failure.code);
 }
 
+function shouldCaptureFailure(failure: BrowserAdapterFailure): boolean {
+  return ![
+    "auth_required",
+    "verification_required",
+    "rate_limited",
+    "needs_confirmation",
+    "thread_not_found",
+    "remote_delete_disabled",
+  ].includes(failure.code);
+}
+
+function shouldRecoverSubmittedOperation(failure: BrowserAdapterFailure): boolean {
+  return [
+    "submission_ambiguous",
+    "response_timeout",
+    "browser_crashed",
+  ].includes(failure.code);
+}
+
 async function lastAssistantTurn(page: Page): Promise<Locator | null> {
   const turns = await firstPopulatedCollection(page, CHATGPT_SELECTORS.assistantTurns);
   const count = await turns.count();
@@ -116,6 +144,13 @@ export class ChatGptBrowserAdapter implements BrowserAdapter {
   private readonly submissionTimeoutMs: number;
   private readonly pollIntervalMs: number;
   private readonly stableContentMs: number;
+  private readonly captureScreenshotOnError: boolean;
+  private readonly captureHtmlOnError: boolean;
+  private readonly captureTraceOnError: boolean;
+  private readonly pendingDiagnostics = new Map<
+    string,
+    readonly DiagnosticArtifactDraft[]
+  >();
 
   public constructor(options: ChatGptBrowserAdapterOptions) {
     this.manager = options.manager;
@@ -126,6 +161,9 @@ export class ChatGptBrowserAdapter implements BrowserAdapter {
       options.submissionTimeoutMs ?? options.navigationTimeoutMs;
     this.pollIntervalMs = options.pollIntervalMs ?? 100;
     this.stableContentMs = options.stableContentMs ?? 1_250;
+    this.captureScreenshotOnError = options.captureScreenshotOnError ?? true;
+    this.captureHtmlOnError = options.captureHtmlOnError ?? true;
+    this.captureTraceOnError = options.captureTraceOnError ?? false;
   }
 
   public start(): Promise<BrowserStatusSnapshot> {
@@ -143,107 +181,168 @@ export class ChatGptBrowserAdapter implements BrowserAdapter {
     return this.manager.waitForReady(options);
   }
 
-  public createConversation(
+  public async createConversation(
     input: CreateConversationInput,
     context: BrowserOperationContext,
   ): Promise<BrowserAdapterResult<FinalAssistantResponse>> {
-    return this.withLease<FinalAssistantResponse>(context, async (page) => {
-      const navigationFailure = await openProjectForNewConversation(
-        page,
-        this.manager,
-        {
-          projectUrl: input.projectUrl,
-          navigationTimeoutMs: this.navigationTimeoutMs,
-        },
-      );
-      if (navigationFailure !== null) {
-        return { ok: false, error: navigationFailure };
-      }
+    let recoveryConversation: RemoteConversationReference | null = null;
+    let submissionConfirmed = false;
+    const operationContext: BrowserOperationContext = {
+      ...context,
+      onConversationIdentified: (conversation) => {
+        recoveryConversation = conversation;
+        context.onConversationIdentified?.(conversation);
+      },
+    };
 
-      const submission = await submitMessage(
-        page,
-        this.manager,
+    const result = await this.withLease<FinalAssistantResponse>(
+      operationContext,
+      async (page) => {
+        const navigationFailure = await openProjectForNewConversation(
+          page,
+          this.manager,
+          {
+            projectUrl: input.projectUrl,
+            navigationTimeoutMs: this.navigationTimeoutMs,
+          },
+        );
+        if (navigationFailure !== null) {
+          return { ok: false, error: navigationFailure };
+        }
+
+        const submission = await submitMessage(
+          page,
+          this.manager,
+          input.message,
+          operationContext,
+          {
+            submissionTimeoutMs: this.submissionTimeoutMs,
+            pollIntervalMs: this.pollIntervalMs,
+          },
+        );
+        if (!submission.ok) {
+          recoveryConversation = submission.conversation;
+          return submission;
+        }
+        submissionConfirmed = true;
+        recoveryConversation = submission.conversation;
+
+        const completion = await waitForFinalAssistantResponse(
+          page,
+          this.manager,
+          submission.snapshot,
+          submission.conversation,
+          {
+            responseTimeoutMs: this.responseTimeoutMs,
+            pollIntervalMs: this.pollIntervalMs,
+            stableContentMs: this.stableContentMs,
+            ...(operationContext.onConversationIdentified === undefined
+              ? {}
+              : {
+                  onConversationIdentified:
+                    operationContext.onConversationIdentified,
+                }),
+          },
+        );
+        if (!completion.ok) {
+          return completion;
+        }
+        return { ok: true, value: completion.response };
+      },
+    );
+
+    if (
+      !result.ok &&
+      recoveryConversation !== null &&
+      shouldRecoverSubmittedOperation(result.error) &&
+      (submissionConfirmed || result.error.code === "submission_ambiguous")
+    ) {
+      const recovered = await this.recoverSubmittedOperation(
+        recoveryConversation,
         input.message,
-        context,
-        {
-          submissionTimeoutMs: this.submissionTimeoutMs,
-          pollIntervalMs: this.pollIntervalMs,
-        },
+        result.error,
+        operationContext,
       );
-      if (!submission.ok) {
-        return submission;
+      if (recovered.ok) {
+        this.pendingDiagnostics.delete(context.runId);
       }
-
-      const completion = await waitForFinalAssistantResponse(
-        page,
-        this.manager,
-        submission.snapshot,
-        submission.conversation,
-        {
-          responseTimeoutMs: this.responseTimeoutMs,
-          pollIntervalMs: this.pollIntervalMs,
-          stableContentMs: this.stableContentMs,
-          ...(context.onConversationIdentified === undefined
-            ? {}
-            : {
-                onConversationIdentified: context.onConversationIdentified,
-              }),
-        },
-      );
-      if (!completion.ok) {
-        return completion;
-      }
-      return { ok: true, value: completion.response };
-    });
+      return recovered;
+    }
+    return result;
   }
 
-  public sendMessage(
+  public async sendMessage(
     input: SendMessageInput,
     context: BrowserOperationContext,
   ): Promise<BrowserAdapterResult<FinalAssistantResponse>> {
-    return this.withLease<FinalAssistantResponse>(context, async (page) => {
-      const navigationFailure = await openExistingConversation(
-        page,
-        this.manager,
-        {
-          url: input.conversation.url,
-          conversationId: input.conversation.conversationId,
-          navigationTimeoutMs: this.navigationTimeoutMs,
-        },
-      );
-      if (navigationFailure !== null) {
-        return { ok: false, error: navigationFailure };
-      }
+    let submissionAttempted = false;
+    const result = await this.withLease<FinalAssistantResponse>(
+      context,
+      async (page) => {
+        const navigationFailure = await openExistingConversation(
+          page,
+          this.manager,
+          {
+            url: input.conversation.url,
+            conversationId: input.conversation.conversationId,
+            navigationTimeoutMs: this.navigationTimeoutMs,
+          },
+        );
+        if (navigationFailure !== null) {
+          return { ok: false, error: navigationFailure };
+        }
 
-      const submission = await submitMessage(
-        page,
-        this.manager,
-        input.message,
-        context,
-        {
-          submissionTimeoutMs: this.submissionTimeoutMs,
-          pollIntervalMs: this.pollIntervalMs,
-        },
-      );
-      if (!submission.ok) {
-        return submission;
-      }
+        const submission = await submitMessage(
+          page,
+          this.manager,
+          input.message,
+          context,
+          {
+            submissionTimeoutMs: this.submissionTimeoutMs,
+            pollIntervalMs: this.pollIntervalMs,
+          },
+        );
+        if (!submission.ok) {
+          submissionAttempted =
+            submission.error.code === "submission_ambiguous";
+          return submission;
+        }
+        submissionAttempted = true;
 
-      const completion = await waitForFinalAssistantResponse(
-        page,
-        this.manager,
-        submission.snapshot,
+        const completion = await waitForFinalAssistantResponse(
+          page,
+          this.manager,
+          submission.snapshot,
+          input.conversation,
+          {
+            responseTimeoutMs: this.responseTimeoutMs,
+            pollIntervalMs: this.pollIntervalMs,
+            stableContentMs: this.stableContentMs,
+          },
+        );
+        return completion.ok
+          ? { ok: true, value: completion.response }
+          : completion;
+      },
+    );
+
+    if (
+      !result.ok &&
+      submissionAttempted &&
+      shouldRecoverSubmittedOperation(result.error)
+    ) {
+      const recovered = await this.recoverSubmittedOperation(
         input.conversation,
-        {
-          responseTimeoutMs: this.responseTimeoutMs,
-          pollIntervalMs: this.pollIntervalMs,
-          stableContentMs: this.stableContentMs,
-        },
+        input.message,
+        result.error,
+        context,
       );
-      return completion.ok
-        ? { ok: true, value: completion.response }
-        : completion;
-    });
+      if (recovered.ok) {
+        this.pendingDiagnostics.delete(context.runId);
+      }
+      return recovered;
+    }
+    return result;
   }
 
   public inspectConversation(
@@ -346,9 +445,24 @@ export class ChatGptBrowserAdapter implements BrowserAdapter {
     input: DiagnosticCaptureInput,
     context: BrowserOperationContext,
   ): Promise<BrowserAdapterResult<readonly DiagnosticArtifactDraft[]>> {
-    void input;
     void context;
-    return Promise.resolve({ ok: true, value: [] });
+    const pending = this.pendingDiagnostics.get(input.runId) ?? [];
+    this.pendingDiagnostics.delete(input.runId);
+    return Promise.resolve({
+      ok: true,
+      value: pending.filter((artifact) => {
+        if (artifact.type === "screenshot") {
+          return input.includeScreenshot;
+        }
+        if (artifact.type === "html") {
+          return input.includeHtml;
+        }
+        if (artifact.type === "trace") {
+          return input.includeTrace;
+        }
+        return true;
+      }),
+    });
   }
 
   public close(): Promise<void> {
@@ -360,18 +474,86 @@ export class ChatGptBrowserAdapter implements BrowserAdapter {
     operation: (page: Page) => Promise<BrowserAdapterResult<T>>,
   ): Promise<BrowserAdapterResult<T>> {
     let lease: PageLease | null = null;
+    let observation: PageDiagnosticObservation | null = null;
     let discard = false;
     try {
       lease = await this.manager.leasePage(context.signal);
+      observation = observePageDiagnostics(lease.page);
       const result = await operation(lease.page);
       discard = !result.ok && shouldDiscardPage(result.error);
+      if (!result.ok) {
+        await this.rememberDiagnostics(
+          context.runId,
+          lease.page,
+          observation,
+          result.error,
+        );
+      }
       return result;
     } catch (error) {
       const failure = blockedFailure(error);
       discard = shouldDiscardPage(failure);
+      if (lease !== null && observation !== null) {
+        await this.rememberDiagnostics(
+          context.runId,
+          lease.page,
+          observation,
+          failure,
+        );
+      }
       return { ok: false, error: failure };
     } finally {
+      observation?.stop();
       await lease?.release({ discard }).catch(() => undefined);
+    }
+  }
+
+  private recoverSubmittedOperation(
+    conversation: RemoteConversationReference,
+    message: string,
+    originalFailure: BrowserAdapterFailure,
+    context: BrowserOperationContext,
+  ): Promise<BrowserAdapterResult<FinalAssistantResponse>> {
+    return this.withLease(context, (page) =>
+      recoverSubmittedConversation(
+        page,
+        this.manager,
+        conversation,
+        message,
+        originalFailure,
+        context,
+        {
+          navigationTimeoutMs: this.navigationTimeoutMs,
+          responseTimeoutMs: this.responseTimeoutMs,
+          pollIntervalMs: this.pollIntervalMs,
+          stableContentMs: this.stableContentMs,
+        },
+      ),
+    );
+  }
+
+  private async rememberDiagnostics(
+    runId: string,
+    page: Page,
+    observation: PageDiagnosticObservation,
+    failure: BrowserAdapterFailure,
+  ): Promise<void> {
+    if (!shouldCaptureFailure(failure)) {
+      return;
+    }
+    const artifacts = await captureFailureDiagnostics(
+      page,
+      this.manager,
+      observation,
+      failure,
+      {
+        includeScreenshot: this.captureScreenshotOnError,
+        includeHtml: this.captureHtmlOnError,
+        includeTrace: this.captureTraceOnError,
+      },
+    ).catch(() => []);
+    if (artifacts.length > 0) {
+      this.pendingDiagnostics.set(runId, artifacts);
     }
   }
 }
@@ -385,5 +567,8 @@ export function createChatGptBrowserAdapterFromConfig(
     manager,
     navigationTimeoutMs: config.browser.navigationTimeoutSeconds * 1_000,
     responseTimeoutMs: config.browser.responseTimeoutSeconds * 1_000,
+    captureScreenshotOnError: config.diagnostics.captureScreenshotOnError,
+    captureHtmlOnError: config.diagnostics.captureHtmlOnError,
+    captureTraceOnError: config.diagnostics.captureTraceOnError,
   });
 }

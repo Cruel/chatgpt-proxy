@@ -2,6 +2,7 @@ import type { Page } from "playwright";
 
 import type { BrowserAdapterFailure } from "../adapter.js";
 import type { BrowserManager } from "../manager.js";
+import { matchKnownAlert } from "./known-detectors.js";
 import {
   CHATGPT_SELECTORS,
   anyVisible,
@@ -70,28 +71,15 @@ export async function detectBlockingFailure(
     );
   }
 
-  const alertText = (await visibleText(page, CHATGPT_SELECTORS.alert)).toLowerCase();
-  if (
-    alertText.includes("usage limit") ||
-    alertText.includes("rate limit") ||
-    alertText.includes("too many requests") ||
-    alertText.includes("try again later")
-  ) {
-    return failure("rate_limited", alertText || "ChatGPT rate limit reached", page, true);
-  }
-  if (
-    alertText.includes("tool execution failed") ||
-    alertText.includes("tool failed") ||
-    alertText.includes("error using tool")
-  ) {
-    return failure("tool_failed", alertText || "A ChatGPT tool failed", page);
-  }
-  if (
-    alertText.includes("something went wrong") ||
-    alertText.includes("network error") ||
-    alertText.includes("error generating")
-  ) {
-    return failure("send_failed", alertText || "ChatGPT reported an error", page, true);
+  const alertText = await visibleText(page, CHATGPT_SELECTORS.alert);
+  const knownAlert = matchKnownAlert(alertText);
+  if (knownAlert !== null) {
+    return failure(
+      knownAlert.code,
+      alertText || `ChatGPT matched the '${knownAlert.name}' detector`,
+      page,
+      knownAlert.retryable,
+    );
   }
 
   const dialog = await firstVisibleLocator(page, CHATGPT_SELECTORS.confirmationDialog);

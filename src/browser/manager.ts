@@ -1,4 +1,12 @@
-import { chmod, mkdir } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type { Logger } from "pino";
 import {
@@ -46,6 +54,7 @@ export interface BrowserManagerOptions {
   readonly navigationTimeoutMs: number;
   readonly statusPollIntervalMs?: number;
   readonly recoveryDelaysMs?: readonly number[];
+  readonly traceEnabled?: boolean;
   readonly probe?: BrowserStatusProbe;
   readonly launchPersistentContext?: PersistentContextLauncher;
   readonly logger?: Pick<Logger, "debug" | "error" | "info" | "warn">;
@@ -109,6 +118,7 @@ export class BrowserManager {
   private readonly navigationTimeoutMs: number;
   private readonly statusPollIntervalMs: number;
   private readonly recoveryDelaysMs: readonly number[];
+  private readonly traceEnabled: boolean;
   private readonly probe: BrowserStatusProbe;
   private readonly launchPersistentContext: PersistentContextLauncher;
   private readonly logger: Pick<Logger, "debug" | "error" | "info" | "warn">;
@@ -128,6 +138,8 @@ export class BrowserManager {
   private pollTimer: NodeJS.Timeout | null = null;
   private stopping = false;
   private manualLoginNavigationPending = false;
+  private tracingStarted = false;
+  private traceCaptureTail: Promise<void> = Promise.resolve();
 
   public constructor(options: BrowserManagerOptions) {
     if (!Number.isSafeInteger(options.maxConcurrentPages) || options.maxConcurrentPages < 1) {
@@ -149,6 +161,7 @@ export class BrowserManager {
     this.navigationTimeoutMs = options.navigationTimeoutMs;
     this.statusPollIntervalMs = options.statusPollIntervalMs ?? 1_000;
     this.recoveryDelaysMs = options.recoveryDelaysMs ?? DEFAULT_RECOVERY_DELAYS_MS;
+    this.traceEnabled = options.traceEnabled ?? false;
     this.probe = options.probe ?? new ChatGptAuthenticationProbe();
     this.launchPersistentContext =
       options.launchPersistentContext ?? defaultLauncher;
@@ -168,6 +181,15 @@ export class BrowserManager {
 
   public get isHeadless(): boolean {
     return this.headless;
+  }
+
+  public captureTraceChunk(): Promise<Uint8Array | null> {
+    const capture = this.traceCaptureTail.then(() => this.performTraceCapture());
+    this.traceCaptureTail = capture.then(
+      () => undefined,
+      () => undefined,
+    );
+    return capture;
   }
 
   public getStatus(queuedRunCount = 0): BrowserStatusSnapshot {
@@ -356,6 +378,20 @@ export class BrowserManager {
     this.context = context;
     context.once("close", () => this.handleContextClosed(generation));
 
+    if (this.traceEnabled) {
+      try {
+        await context.tracing.start({
+          screenshots: true,
+          snapshots: true,
+          sources: false,
+        });
+        this.tracingStarted = true;
+      } catch (error) {
+        this.tracingStarted = false;
+        this.logger.warn({ error }, "failed to start Playwright tracing");
+      }
+    }
+
     const existingPages = context.pages();
     const controlPage = existingPages[0] ?? (await context.newPage());
     for (const extraPage of existingPages.slice(1)) {
@@ -486,6 +522,13 @@ export class BrowserManager {
     await pool?.close().catch((error: unknown) => {
       this.logger.warn({ error }, "failed to close browser page pool cleanly");
     });
+    await this.traceCaptureTail.catch(() => undefined);
+    if (context !== null && this.tracingStarted) {
+      await context.tracing.stop().catch((error: unknown) => {
+        this.logger.debug({ error }, "failed to stop Playwright tracing cleanly");
+      });
+    }
+    this.tracingStarted = false;
     await context?.close().catch((error: unknown) => {
       this.logger.warn({ error }, "failed to close browser context cleanly");
     });
@@ -503,6 +546,7 @@ export class BrowserManager {
     this.context = null;
     this.controlPage = null;
     this.pagePool = null;
+    this.tracingStarted = false;
     void pool?.close().catch(() => undefined);
     this.setStatus("recovering", "Persistent Chromium closed unexpectedly");
     void this.recover("Persistent Chromium closed unexpectedly").catch(
@@ -623,6 +667,30 @@ export class BrowserManager {
       this.pollTimer = null;
     }
   }
+
+  private async performTraceCapture(): Promise<Uint8Array | null> {
+    const context = this.context;
+    if (!this.traceEnabled || !this.tracingStarted || context === null) {
+      return null;
+    }
+
+    const directory = await mkdtemp(join(tmpdir(), "chatgpt-proxy-trace-"));
+    const tracePath = join(directory, "trace.zip");
+    try {
+      await context.tracing.stopChunk({ path: tracePath });
+      if (this.context === context && !this.stopping) {
+        await context.tracing.startChunk({
+          title: `chatgpt-proxy-${new Date().toISOString()}`,
+        });
+      }
+      return await readFile(tracePath);
+    } catch (error) {
+      this.logger.warn({ error }, "failed to capture Playwright trace chunk");
+      return null;
+    } finally {
+      await rm(directory, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
 }
 
 export function createBrowserManagerFromConfig(
@@ -639,6 +707,7 @@ export function createBrowserManagerFromConfig(
           maxConcurrentPages: config.browser.maxConcurrentRuns,
           pageIdleTimeoutMs: config.browser.pageIdleTimeoutSeconds * 1_000,
           navigationTimeoutMs: config.browser.navigationTimeoutSeconds * 1_000,
+          traceEnabled: config.diagnostics.captureTraceOnError,
         }
       : {
           profileDirectory: config.chatGpt.profileDirectory,
@@ -648,6 +717,7 @@ export function createBrowserManagerFromConfig(
           maxConcurrentPages: config.browser.maxConcurrentRuns,
           pageIdleTimeoutMs: config.browser.pageIdleTimeoutSeconds * 1_000,
           navigationTimeoutMs: config.browser.navigationTimeoutSeconds * 1_000,
+          traceEnabled: config.diagnostics.captureTraceOnError,
           logger,
         },
   );

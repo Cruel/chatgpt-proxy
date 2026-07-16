@@ -5,7 +5,11 @@ import type { BrowserAdapter } from "./browser/adapter.js";
 import type { AppConfig } from "./config/schema.js";
 import { openPersistence, type Persistence } from "./db/index.js";
 import { DurableRunQueue } from "./scheduler/index.js";
-import { BrowserRunExecutor, ProxyService } from "./service/index.js";
+import {
+  BrowserRunExecutor,
+  DiagnosticArtifactStore,
+  ProxyService,
+} from "./service/index.js";
 
 export interface CreateProxyRuntimeOptions {
   readonly config: AppConfig;
@@ -29,9 +33,22 @@ export function createProxyRuntime(
   const ownsPersistence = options.persistence === undefined;
   const persistence =
     options.persistence ?? openPersistence(options.config.database.path);
+  const artifactStore = new DiagnosticArtifactStore({
+    artifactDirectory: options.config.diagnostics.artifactDirectory,
+    persistence,
+    retainDays: options.config.diagnostics.retainDays,
+  });
+  const prunedArtifactCount = artifactStore.pruneExpired();
+  if (prunedArtifactCount > 0) {
+    options.logger?.info(
+      { prunedArtifactCount },
+      "expired diagnostic artifacts pruned",
+    );
+  }
   const executor = new BrowserRunExecutor({
     adapter: options.adapter,
     config: options.config,
+    artifactStore,
   });
   const queue = new DurableRunQueue({
     persistence,

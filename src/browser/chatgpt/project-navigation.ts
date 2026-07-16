@@ -140,8 +140,9 @@ export async function openProjectForNewConversation(
 
   if (controls.composer === null) {
     return {
-      code: "input_not_found",
-      message: "The ChatGPT project page did not expose a message composer",
+      code: "ui_changed",
+      message:
+        "The authenticated ChatGPT project page did not expose any known message composer or project new-chat control",
       retryable: false,
       observedUrl: page.url(),
     };
@@ -192,8 +193,9 @@ export async function openExistingConversation(
   }
   if (controls.composer === null) {
     return {
-      code: "input_not_found",
-      message: "The ChatGPT conversation did not expose a message composer",
+      code: "ui_changed",
+      message:
+        "The authenticated ChatGPT conversation did not expose any known message composer",
       retryable: false,
       observedUrl: page.url(),
     };

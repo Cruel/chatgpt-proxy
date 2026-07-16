@@ -89,6 +89,64 @@ export interface LocatorRoot {
   locator(selector: string): Locator;
 }
 
+export type ChatGptSelectorGroup = keyof typeof CHATGPT_SELECTORS;
+
+export interface MatchedSelector {
+  readonly group: ChatGptSelectorGroup;
+  readonly selector: string;
+  readonly count: number;
+  readonly visibleCount: number;
+}
+
+export class ChatGptSelectorRegistry {
+  public selectors(group: ChatGptSelectorGroup): readonly string[] {
+    return CHATGPT_SELECTORS[group];
+  }
+
+  public async firstVisible(
+    root: LocatorRoot,
+    group: ChatGptSelectorGroup,
+  ): Promise<Locator | null> {
+    for (const selector of this.selectors(group)) {
+      const locator = root.locator(selector).first();
+      if (await locator.isVisible().catch(() => false)) {
+        return locator;
+      }
+    }
+    return null;
+  }
+
+  public async collectVisibleMatches(
+    root: LocatorRoot,
+    groups: readonly ChatGptSelectorGroup[] = Object.keys(
+      CHATGPT_SELECTORS,
+    ) as ChatGptSelectorGroup[],
+  ): Promise<readonly MatchedSelector[]> {
+    const matches: MatchedSelector[] = [];
+    for (const group of groups) {
+      for (const selector of this.selectors(group)) {
+        const locators = root.locator(selector);
+        const count = await locators.count().catch(() => 0);
+        if (count === 0) {
+          continue;
+        }
+        let visibleCount = 0;
+        for (let index = 0; index < Math.min(count, 25); index += 1) {
+          if (await locators.nth(index).isVisible().catch(() => false)) {
+            visibleCount += 1;
+          }
+        }
+        if (visibleCount > 0) {
+          matches.push({ group, selector, count, visibleCount });
+        }
+      }
+    }
+    return matches;
+  }
+}
+
+export const CHATGPT_SELECTOR_REGISTRY = new ChatGptSelectorRegistry();
+
 export function firstLocator(
   root: LocatorRoot,
   selectors: readonly string[],

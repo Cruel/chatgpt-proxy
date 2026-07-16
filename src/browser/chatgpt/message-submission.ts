@@ -32,6 +32,8 @@ export type MessageSubmissionResult =
   | {
       readonly ok: false;
       readonly error: BrowserAdapterFailure;
+      readonly snapshot: SubmissionSnapshot;
+      readonly conversation: RemoteConversationReference | null;
     };
 
 function failure(
@@ -39,6 +41,8 @@ function failure(
   code: BrowserAdapterFailure["code"],
   message: string,
   retryable: boolean,
+  snapshot: SubmissionSnapshot,
+  conversation: RemoteConversationReference | null = null,
 ): MessageSubmissionResult {
   return {
     ok: false,
@@ -48,6 +52,8 @@ function failure(
       retryable,
       observedUrl: page.isClosed() ? null : page.url(),
     },
+    snapshot,
+    conversation,
   };
 }
 
@@ -65,12 +71,19 @@ export async function submitMessage(
       "input_not_found",
       "The ChatGPT message composer is not available",
       false,
+      snapshot,
     );
   }
 
   const composer = await firstVisibleLocator(page, CHATGPT_SELECTORS.composer);
   if (composer === null) {
-    return failure(page, "input_not_found", "Message composer not found", false);
+    return failure(
+      page,
+      "input_not_found",
+      "Message composer not found",
+      false,
+      snapshot,
+    );
   }
 
   try {
@@ -82,6 +95,7 @@ export async function submitMessage(
       "send_failed",
       `Failed to enter the ChatGPT message: ${detail}`,
       true,
+      snapshot,
     );
   }
 
@@ -102,15 +116,23 @@ export async function submitMessage(
       submitAttempted ? "submission_ambiguous" : "send_failed",
       `Failed while submitting the ChatGPT message: ${detail}`,
       submitAttempted,
+      snapshot,
+      await conversationReferenceFromPage(page),
     );
   }
 
   const pollIntervalMs = options.pollIntervalMs ?? 100;
   const deadline = Date.now() + options.submissionTimeoutMs;
+  let latestConversation: RemoteConversationReference | null = null;
   while (Date.now() < deadline) {
     const blockingFailure = await detectBlockingFailure(page, manager);
     if (blockingFailure !== null) {
-      return { ok: false, error: blockingFailure };
+      return {
+        ok: false,
+        error: blockingFailure,
+        snapshot,
+        conversation: latestConversation,
+      };
     }
 
     const userTurns = await firstPopulatedCollection(page, CHATGPT_SELECTORS.userTurns);
@@ -119,15 +141,22 @@ export async function submitMessage(
       CHATGPT_SELECTORS.assistantTurns,
     );
     const conversation = await conversationReferenceFromPage(page);
+    if (
+      conversation !== null &&
+      conversation.conversationId !== latestConversation?.conversationId
+    ) {
+      latestConversation = conversation;
+      context.onConversationIdentified?.(conversation);
+    }
     const confirmed =
       (await userTurns.count()) > snapshot.userTurnCount ||
       (await assistantTurns.count()) > snapshot.assistantTurnCount ||
       (conversation !== null && page.url() !== snapshot.url);
     if (confirmed) {
       if (conversation !== null) {
-        context.onConversationIdentified?.(conversation);
+        latestConversation = conversation;
       }
-      return { ok: true, snapshot, conversation };
+      return { ok: true, snapshot, conversation: latestConversation };
     }
 
     if (context.signal.aborted) {
@@ -136,6 +165,8 @@ export async function submitMessage(
         "submission_ambiguous",
         "The operation was aborted after submission was attempted",
         false,
+        snapshot,
+        latestConversation,
       );
     }
     await page.waitForTimeout(pollIntervalMs);
@@ -146,5 +177,7 @@ export async function submitMessage(
     "submission_ambiguous",
     "The message may have been submitted, but ChatGPT did not confirm it",
     false,
+    snapshot,
+    latestConversation,
   );
 }

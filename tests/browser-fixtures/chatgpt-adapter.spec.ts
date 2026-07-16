@@ -42,6 +42,7 @@ function createAdapter(
     readonly submissionTimeoutMs?: number;
     readonly responseTimeoutMs?: number;
     readonly stableContentMs?: number;
+    readonly traceEnabled?: boolean;
   } = {},
 ): ChatGptBrowserAdapter {
   const manager = new BrowserManager({
@@ -56,6 +57,7 @@ function createAdapter(
     navigationTimeoutMs: 2_000,
     statusPollIntervalMs: 25,
     recoveryDelaysMs: [0, 25, 50],
+    traceEnabled: options.traceEnabled ?? false,
   });
   const adapter = new ChatGptBrowserAdapter({
     manager,
@@ -64,6 +66,9 @@ function createAdapter(
     responseTimeoutMs: options.responseTimeoutMs ?? 2_000,
     pollIntervalMs: 20,
     stableContentMs: options.stableContentMs ?? 80,
+    captureScreenshotOnError: true,
+    captureHtmlOnError: true,
+    captureTraceOnError: options.traceEnabled ?? false,
   });
   resources.adapters.push(adapter);
   return adapter;
@@ -211,6 +216,8 @@ test("classifies tool failures, rate limits, and confirmation prompts", async ()
   try {
     for (const expectation of [
       { scenario: "tool-failed", code: "tool_failed" },
+      { scenario: "tool-aborted", code: "tool_failed" },
+      { scenario: "generic-error", code: "send_failed" },
       { scenario: "rate-limited", code: "rate_limited" },
       { scenario: "confirmation", code: "needs_confirmation" },
     ] as const) {
@@ -255,6 +262,126 @@ test("treats an unconfirmed submission as ambiguous and does not retry", async (
       ok: false,
       error: { code: "submission_ambiguous", retryable: false },
     });
+  } finally {
+    await disposeResources(resources);
+  }
+});
+
+test("recovers an ambiguous submission by inspection without resubmitting", async () => {
+  const resources = await createResources();
+  try {
+    const adapter = createAdapter(resources, "/project/example", {
+      submissionTimeoutMs: 80,
+      responseTimeoutMs: 1_000,
+    });
+    await adapter.start();
+
+    const message = "Recover this ambiguous fixture submission.";
+    const result = await adapter.sendMessage(
+      {
+        conversation: {
+          conversationId: "ambiguous-recovery",
+          url: `${resources.server.baseUrl}/c/ambiguous-recovery?scenario=late-ambiguous-submission`,
+          title: null,
+        },
+        message,
+      },
+      operationContext(),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        text: `Recovered response to: ${message}`,
+        conversation: { conversationId: "ambiguous-recovery" },
+      },
+    });
+  } finally {
+    await disposeResources(resources);
+  }
+});
+
+test("recovers a completed response after the original wait times out", async () => {
+  const resources = await createResources();
+  try {
+    const adapter = createAdapter(resources, "/project/example", {
+      submissionTimeoutMs: 500,
+      responseTimeoutMs: 180,
+    });
+    await adapter.start();
+
+    const message = "Recover this interrupted response fixture.";
+    const result = await adapter.sendMessage(
+      {
+        conversation: {
+          conversationId: "timeout-recovery",
+          url: `${resources.server.baseUrl}/c/timeout-recovery?scenario=recovery-after-timeout`,
+          title: null,
+        },
+        message,
+      },
+      operationContext(),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        text: `Recovered response to: ${message}`,
+        conversation: { conversationId: "timeout-recovery" },
+      },
+    });
+  } finally {
+    await disposeResources(resources);
+  }
+});
+
+test("captures screenshot, HTML, DOM metadata, and trace for an unknown UI", async () => {
+  const resources = await createResources();
+  try {
+    const adapter = createAdapter(resources, "/project/example", {
+      traceEnabled: true,
+    });
+    await adapter.start();
+    const context = operationContext();
+    const result = await adapter.createConversation(
+      {
+        projectUrl: `${resources.server.baseUrl}/project/example?scenario=changed-selectors`,
+        message: "This must not be submitted.",
+      },
+      context,
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "ui_changed" },
+    });
+
+    const diagnostics = await adapter.captureDiagnostics(
+      {
+        runId: context.runId,
+        phase: "project_navigation",
+        includeScreenshot: true,
+        includeHtml: true,
+        includeTrace: true,
+      },
+      context,
+    );
+    expect(diagnostics.ok).toBe(true);
+    if (diagnostics.ok) {
+      expect(diagnostics.value.map((artifact) => artifact.type).sort()).toEqual([
+        "dom_fragment",
+        "html",
+        "screenshot",
+        "trace",
+      ]);
+      const metadata = diagnostics.value.find(
+        (artifact) => artifact.type === "dom_fragment",
+      );
+      expect(metadata).toBeDefined();
+      const decoded = new TextDecoder().decode(metadata?.data);
+      expect(decoded).toContain('"failure"');
+      expect(decoded).toContain('"matched_selectors"');
+      expect(decoded).toContain("ui_changed");
+    }
   } finally {
     await disposeResources(resources);
   }

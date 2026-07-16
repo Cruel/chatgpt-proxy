@@ -187,6 +187,7 @@ function interactiveChatHtml(
     <script>
       const scenario = ${JSON.stringify(scenario)};
       const conversationId = ${JSON.stringify(conversationId)};
+      const recoveryStorageKey = 'chatgpt-proxy-recovery-' + conversationId + '-' + scenario;
       const composer = document.getElementById('prompt-textarea');
       const turns = document.getElementById('turns');
       const send = document.querySelector('[data-testid="send-button"]');
@@ -195,6 +196,11 @@ function interactiveChatHtml(
         send.hidden = false;
         composer.focus();
       });
+      if (scenario === 'changed-selectors') {
+        composer.remove();
+        send.remove();
+        document.querySelector('[data-testid="new-chat-button"]').remove();
+      }
       if (scenario === 'delayed-composer') {
         setTimeout(() => {
           composer.hidden = false;
@@ -237,9 +243,22 @@ function interactiveChatHtml(
         turns.append(turn);
 
         setTimeout(() => {
+          if (scenario === 'recovery-after-timeout') {
+            return;
+          }
           if (scenario === 'tool-failed') {
             stop.remove();
             addAlert('Tool execution failed');
+            return;
+          }
+          if (scenario === 'tool-aborted') {
+            stop.remove();
+            addAlert('The tool call was aborted');
+            return;
+          }
+          if (scenario === 'generic-error') {
+            stop.remove();
+            addAlert('Something went wrong');
             return;
           }
           if (scenario === 'confirmation') {
@@ -260,6 +279,37 @@ function interactiveChatHtml(
         }, 120);
       }
 
+      function addCompletedAssistant(message) {
+        const turn = document.createElement('article');
+        turn.dataset.testid = 'assistant-turn';
+        turn.dataset.messageAuthorRole = 'assistant';
+        const markdown = document.createElement('div');
+        markdown.className = 'markdown';
+        const first = document.createElement('p');
+        first.textContent = 'Recovered response to: ' + message;
+        markdown.append(first);
+        turn.append(markdown);
+        const copy = document.createElement('button');
+        copy.setAttribute('aria-label', 'Copy');
+        copy.textContent = 'Copy';
+        turn.append(copy);
+        turns.append(turn);
+      }
+
+      const pendingRecoveryMessage = localStorage.getItem(recoveryStorageKey);
+      if (pendingRecoveryMessage !== null) {
+        const restore = () => {
+          addUserTurn(pendingRecoveryMessage);
+          addCompletedAssistant(pendingRecoveryMessage);
+          localStorage.removeItem(recoveryStorageKey);
+        };
+        if (scenario === 'late-ambiguous-submission') {
+          setTimeout(restore, 150);
+        } else if (scenario === 'recovery-after-timeout') {
+          restore();
+        }
+      }
+
       send.addEventListener('click', () => {
         const message = composer.innerText.trim();
         if (message.length === 0) return;
@@ -267,6 +317,14 @@ function interactiveChatHtml(
         if (scenario === 'rate-limited') {
           addAlert('You have reached the current usage limit');
           return;
+        }
+        if (scenario === 'late-ambiguous-submission') {
+          localStorage.setItem(recoveryStorageKey, message);
+          composer.innerHTML = '';
+          return;
+        }
+        if (scenario === 'recovery-after-timeout') {
+          localStorage.setItem(recoveryStorageKey, message);
         }
         addUserTurn(message);
         composer.innerHTML = '';

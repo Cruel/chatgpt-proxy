@@ -8,6 +8,7 @@ import type {
   ConversationInspection,
   CreateConversationInput,
   DiagnosticArtifactDraft,
+  DiagnosticCaptureInput,
   FinalAssistantResponse,
   RemoteConversationReference,
   RemoteDeletionResult,
@@ -40,12 +41,16 @@ export class FakeBrowserAdapter implements BrowserAdapter {
   public readonly sendCalls: SendMessageInput[] = [];
   public readonly deleteCalls: RemoteConversationReference[] = [];
   public readonly inspectCalls: RemoteConversationReference[] = [];
+  public readonly diagnosticCalls: DiagnosticCaptureInput[] = [];
 
   private readonly responsePrefix: string;
   private readonly conversations = new Map<string, MutableConversation>();
   private readonly createResults: CreateResult[] = [];
   private readonly sendResults: SendResult[] = [];
   private readonly deleteResults: DeleteResult[] = [];
+  private readonly diagnosticResults: BrowserAdapterResult<
+    readonly DiagnosticArtifactDraft[]
+  >[] = [];
   private status: BrowserStatusSnapshot["status"];
   private detail: string | null;
   private readonly statusListeners = new Set<() => void>();
@@ -84,6 +89,12 @@ export class FakeBrowserAdapter implements BrowserAdapter {
 
   public enqueueDeleteResult(result: DeleteResult): void {
     this.deleteResults.push(result);
+  }
+
+  public enqueueDiagnosticResult(
+    result: BrowserAdapterResult<readonly DiagnosticArtifactDraft[]>,
+  ): void {
+    this.diagnosticResults.push(result);
   }
 
   public listConversations(): readonly FakeConversation[] {
@@ -215,10 +226,13 @@ export class FakeBrowserAdapter implements BrowserAdapter {
     });
   }
 
-  public captureDiagnostics(): Promise<
+  public captureDiagnostics(input: DiagnosticCaptureInput): Promise<
     BrowserAdapterResult<readonly DiagnosticArtifactDraft[]>
   > {
-    return Promise.resolve({ ok: true, value: [] });
+    this.diagnosticCalls.push(input);
+    return Promise.resolve(
+      this.diagnosticResults.shift() ?? { ok: true, value: [] },
+    );
   }
 
   private remember(
