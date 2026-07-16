@@ -49,7 +49,14 @@ export interface RunEventRecord {
   readonly createdAt: string;
 }
 
-export type ArtifactType = "screenshot" | "html" | "trace" | "dom_fragment";
+export const ARTIFACT_TYPES = [
+  "screenshot",
+  "html",
+  "trace",
+  "dom_fragment",
+] as const;
+
+export type ArtifactType = (typeof ARTIFACT_TYPES)[number];
 
 export interface ArtifactRecord {
   readonly id: string;

@@ -3,10 +3,12 @@
 A local, single-user service that will expose a small HTTP API and CLI over a
 persistent Playwright-controlled ChatGPT browser session.
 
-The repository currently contains the Phase 1 foundation: validated TOML
-configuration, domain and API contracts, a browser-adapter boundary, structured
-logging, CLI command parsing, and isolated test-suite entry points. It does not
-open a browser or contact ChatGPT.
+The repository currently contains the Phase 1 and Phase 2 foundations:
+validated TOML configuration, domain and API contracts, a browser-adapter
+boundary, structured logging, CLI command parsing, versioned SQLite persistence,
+durable scheduling, bounded cross-thread concurrency, same-thread serialization,
+restart reconciliation, and idempotency handling. It does not open a browser or
+contact ChatGPT.
 
 ## Development
 

@@ -16,7 +16,9 @@
     "./api": "./dist/api/schemas.js",
     "./browser": "./dist/browser/adapter.js",
     "./config": "./dist/config/index.js",
-    "./domain": "./dist/domain/index.js"
+    "./db": "./dist/db/index.js",
+    "./domain": "./dist/domain/index.js",
+    "./scheduler": "./dist/scheduler/index.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -33,6 +35,7 @@
     "cli": "tsx src/cli/main.ts"
   },
   "dependencies": {
+    "better-sqlite3": "^12.11.1",
     "commander": "^15.0.0",
     "pino": "^10.3.1",
     "smol-toml": "^1.7.0",
@@ -40,6 +43,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^26.1.1",
     "eslint": "^10.7.0",
     "tsx": "^4.23.1",

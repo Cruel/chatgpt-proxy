@@ -10,6 +10,12 @@ export type {
   ThreadMessageRecord,
   ThreadRecord,
 } from "./models.js";
+export { ARTIFACT_TYPES } from "./models.js";
+export {
+  canTransitionRunState,
+  isActiveRunState,
+  isCompletedRunState,
+} from "./run-transitions.js";
 export {
   API_ERROR_CODES,
   BROWSER_STATUSES,
