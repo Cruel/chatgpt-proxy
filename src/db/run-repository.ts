@@ -281,6 +281,29 @@ export class RunRepository {
     return result.changes === 1 ? this.getRequiredById(runId) : null;
   }
 
+  public releaseClaim(runId: string): RunRecord {
+    const result = this.database
+      .prepare<{ runId: string }>(`
+        UPDATE runs
+        SET state = 'queued',
+            phase = 'queued',
+            submission_state = 'not_started',
+            started_at = NULL,
+            completed_at = NULL,
+            error_code = NULL,
+            error_message = NULL
+        WHERE id = @runId
+          AND state = 'navigating'
+          AND submission_state = 'not_started'
+      `)
+      .run({ runId });
+    if (result.changes !== 1) {
+      const current = this.getRequiredById(runId);
+      throw new InvalidRunTransitionError(runId, current.state, "queued");
+    }
+    return this.getRequiredById(runId);
+  }
+
   public transition(runId: string, input: RunTransitionInput): RunRecord {
     return this.database.transaction(() => {
       const current = this.getRequiredById(runId);

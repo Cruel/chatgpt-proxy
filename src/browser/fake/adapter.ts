@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type {
   BrowserAdapter,
   BrowserAdapterResult,
+  BrowserOperationGate,
   BrowserStatusSnapshot,
   ConversationInspection,
   CreateConversationInput,
@@ -34,6 +35,7 @@ interface MutableConversation {
 }
 
 export class FakeBrowserAdapter implements BrowserAdapter {
+  public readonly operationGate: BrowserOperationGate;
   public readonly createCalls: CreateConversationInput[] = [];
   public readonly sendCalls: SendMessageInput[] = [];
   public readonly deleteCalls: RemoteConversationReference[] = [];
@@ -46,11 +48,19 @@ export class FakeBrowserAdapter implements BrowserAdapter {
   private readonly deleteResults: DeleteResult[] = [];
   private status: BrowserStatusSnapshot["status"];
   private detail: string | null;
+  private readonly statusListeners = new Set<() => void>();
 
   public constructor(options: FakeBrowserAdapterOptions = {}) {
     this.responsePrefix = options.responsePrefix ?? "Fake response";
     this.status = options.status ?? "ready";
     this.detail = options.detail ?? null;
+    this.operationGate = {
+      canDispatch: () => this.status === "ready",
+      onChange: (listener) => {
+        this.statusListeners.add(listener);
+        return () => this.statusListeners.delete(listener);
+      },
+    };
   }
 
   public setStatus(
@@ -59,6 +69,9 @@ export class FakeBrowserAdapter implements BrowserAdapter {
   ): void {
     this.status = status;
     this.detail = detail;
+    for (const listener of this.statusListeners) {
+      listener();
+    }
   }
 
   public enqueueCreateResult(result: CreateResult): void {

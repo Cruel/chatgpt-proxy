@@ -6,6 +6,7 @@ import {
   QueueFullError,
   type RunExecutionContext,
   type RunExecutionResult,
+  type RunDispatchGate,
   type RunExecutor,
 } from "../../src/scheduler/index.js";
 import type { RunRecord } from "../../src/domain/index.js";
@@ -86,12 +87,14 @@ function createQueue(
   executor: RunExecutor,
   maxConcurrentRuns = 2,
   maxQueueDepth = 20,
+  dispatchGate?: RunDispatchGate,
 ): DurableRunQueue {
   const queue = new DurableRunQueue({
     persistence,
     executor,
     maxConcurrentRuns,
     maxQueueDepth,
+    ...(dispatchGate === undefined ? {} : { dispatchGate }),
   });
   openQueues.push(queue);
   return queue;
@@ -331,5 +334,92 @@ describe("durable run queue", () => {
     expect(run.state).toBe("failed");
     expect(run.errorCode).toBe("unexpected_state");
     expect(run.errorMessage).toBe("Synthetic executor failure");
+  });
+
+  it("keeps work queued while the browser gate is closed and resumes once", async () => {
+    const persistence = createPersistence();
+    const thread = persistence.threads.create({
+      name: "Authentication gate",
+      state: "idle",
+    });
+    const executor = new ControlledExecutor();
+    const listeners = new Set<() => void>();
+    let ready = false;
+    const dispatchGate: RunDispatchGate = {
+      canDispatch: () => ready,
+      onChange: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+    const queue = createQueue(persistence, executor, 1, 20, dispatchGate);
+    queue.start();
+    queue.enqueue({
+      id: "auth-gated-run",
+      threadId: thread.id,
+      operationType: "send_message",
+      inputText: "Do not submit until login is ready.",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(executor.started).toEqual([]);
+    expect(persistence.runs.getRequiredById("auth-gated-run").state).toBe(
+      "queued",
+    );
+
+    ready = true;
+    for (const listener of listeners) {
+      listener();
+    }
+    await queue.waitForIdle();
+
+    expect(executor.started).toEqual(["auth-gated-run"]);
+    expect(persistence.runs.getRequiredById("auth-gated-run").state).toBe(
+      "succeeded",
+    );
+  });
+
+  it("releases an untouched claim when the browser gate closes mid-dispatch", async () => {
+    const persistence = createPersistence();
+    const thread = persistence.threads.create({
+      name: "Dispatch race",
+      state: "idle",
+    });
+    const executor = new ControlledExecutor();
+    const listeners = new Set<() => void>();
+    let ready = false;
+    let dispatchChecks = 0;
+    const dispatchGate: RunDispatchGate = {
+      canDispatch: () => {
+        dispatchChecks += 1;
+        return ready || dispatchChecks <= 2;
+      },
+      onChange: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+    const queue = createQueue(persistence, executor, 1, 20, dispatchGate);
+    queue.start();
+    queue.enqueue({
+      id: "race-gated-run",
+      threadId: thread.id,
+      operationType: "send_message",
+      inputText: "Remain queued until the gate reopens.",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    const paused = persistence.runs.getRequiredById("race-gated-run");
+    expect(paused.state).toBe("queued");
+    expect(paused.submissionState).toBe("not_started");
+    expect(paused.startedAt).toBeNull();
+    expect(executor.started).toEqual([]);
+
+    ready = true;
+    for (const listener of listeners) {
+      listener();
+    }
+    await queue.waitForIdle();
+    expect(executor.started).toEqual(["race-gated-run"]);
   });
 });

@@ -60,11 +60,17 @@ export interface RunExecutor {
   ): Promise<RunExecutionResult>;
 }
 
+export interface RunDispatchGate {
+  canDispatch(): boolean;
+  onChange(listener: () => void): () => void;
+}
+
 export interface DurableRunQueueOptions {
   readonly persistence: Persistence;
   readonly executor: RunExecutor;
   readonly maxConcurrentRuns: number;
   readonly maxQueueDepth: number;
+  readonly dispatchGate?: RunDispatchGate;
   readonly logger?: Pick<Logger, "debug" | "error" | "info" | "warn">;
 }
 
@@ -82,6 +88,8 @@ export class DurableRunQueue {
   private readonly maxQueueDepth: number;
   private readonly logger: Pick<Logger, "debug" | "error" | "info" | "warn">;
   private readonly semaphore: AsyncSemaphore;
+  private readonly dispatchGate: RunDispatchGate | undefined;
+  private readonly unsubscribeDispatchGate: (() => void) | undefined;
   private readonly threadLocks = new KeyedMutex();
   private readonly inFlight = new Map<string, {
     readonly threadId: string;
@@ -119,6 +127,10 @@ export class DurableRunQueue {
     this.maxQueueDepth = options.maxQueueDepth;
     this.logger = options.logger ?? NOOP_LOGGER;
     this.semaphore = new AsyncSemaphore(options.maxConcurrentRuns);
+    this.dispatchGate = options.dispatchGate;
+    this.unsubscribeDispatchGate = options.dispatchGate?.onChange(() => {
+      this.schedulePump();
+    });
   }
 
   public start(): readonly ReconciledRun[] {
@@ -208,6 +220,7 @@ export class DurableRunQueue {
 
   public async close(): Promise<void> {
     this.closed = true;
+    this.unsubscribeDispatchGate?.();
     await Promise.all([...this.inFlight.values()].map((entry) => entry.promise));
     const closeError = new QueueClosedError();
     for (const waiters of this.runWaiters.values()) {
@@ -216,7 +229,10 @@ export class DurableRunQueue {
       }
     }
     this.runWaiters.clear();
-    this.resolveIdleWaiters();
+    for (const resolve of this.idleWaiters) {
+      resolve();
+    }
+    this.idleWaiters.clear();
   }
 
   private schedulePump(): void {
@@ -233,6 +249,9 @@ export class DurableRunQueue {
 
   private pump(): void {
     if (!this.started || this.closed) {
+      return;
+    }
+    if (this.dispatchGate !== undefined && !this.dispatchGate.canDispatch()) {
       return;
     }
 
@@ -278,8 +297,16 @@ export class DurableRunQueue {
   }
 
   private async executeClaimedRun(runId: string): Promise<void> {
+    if (this.dispatchGate !== undefined && !this.dispatchGate.canDispatch()) {
+      return;
+    }
     const claimed = this.persistence.runs.claimQueued(runId);
     if (claimed === null) {
+      return;
+    }
+    if (this.dispatchGate !== undefined && !this.dispatchGate.canDispatch()) {
+      this.persistence.runs.releaseClaim(runId);
+      this.persistence.runEvents.append(runId, "run_dispatch_paused", {});
       return;
     }
 

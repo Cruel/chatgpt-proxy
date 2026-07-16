@@ -3,12 +3,15 @@
 A local, single-user service that will expose a small HTTP API and CLI over a
 persistent Playwright-controlled ChatGPT browser session.
 
-The repository currently contains the Phase 1 through Phase 3 foundations:
+The repository currently contains the Phase 1 through Phase 4 foundations:
 validated TOML configuration, domain contracts, versioned SQLite persistence,
 durable scheduling, bounded cross-thread concurrency, same-thread serialization,
 restart reconciliation, bearer-authenticated Fastify endpoints, a complete HTTP
-CLI, conservative deletion behavior, and a deterministic fake browser adapter.
-The fake server does not open a browser or contact ChatGPT.
+CLI, conservative deletion behavior, a deterministic fake browser adapter, and
+a persistent Playwright Chromium lifecycle with login-state gating, bounded tab
+leasing, profile reuse, and automatic browser recovery. The fake server still
+does not open a browser or contact ChatGPT; ChatGPT conversation automation is
+implemented in Phase 5.
 
 ## Development
 
@@ -21,9 +24,27 @@ Install and validate:
 
 ```bash
 pnpm install
+pnpm browser:install
 pnpm test:ci
 pnpm build
 ```
+
+On a new Debian/Ubuntu/WSL environment, install Chromium and its operating
+system dependencies with:
+
+```bash
+pnpm browser:install:with-deps
+```
+
+The service uses Playwright-managed Linux Chromium and a dedicated persistent
+profile on the Linux/WSL filesystem. Do not point `profile_dir` at a Windows
+Chrome profile or a path under `/mnt/<drive>`.
+
+`BrowserManager` keeps one control tab available for login and verification and
+leases a separate bounded set of tabs to active operations. When login expires,
+its operation gate pauses the durable queue while the headed control tab remains
+available for manual login. Status polling resumes queued work only after the
+profile is verified as ready again.
 
 Copy `config.example.toml` to `config.toml`. Local config, browser profile data,
 databases, and diagnostics are ignored by Git.

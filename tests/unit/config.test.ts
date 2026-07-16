@@ -161,4 +161,21 @@ enabled = true
       ),
     ).toThrow(/live-test project URL/);
   });
+
+  it("rejects persistent browser profiles on mounted Windows drives", () => {
+    expect(() =>
+      parseConfigText(
+        `
+[server]
+api_token = "test-token"
+
+[chatgpt]
+project_name = "Example Project"
+project_url = "https://chatgpt.com/g/g-p-example/project"
+profile_dir = "/mnt/c/Users/example/chrome-profile"
+`,
+        { homeDirectory: HOME_DIRECTORY, baseDirectory: "/tmp/project" },
+      ),
+    ).toThrow(/WSL filesystem/);
+  });
 });

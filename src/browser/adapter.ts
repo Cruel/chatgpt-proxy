@@ -14,6 +14,11 @@ export interface BrowserStatusSnapshot {
   readonly observedAt: string;
 }
 
+export interface BrowserOperationGate {
+  canDispatch(): boolean;
+  onChange(listener: () => void): () => void;
+}
+
 export interface RemoteConversationReference {
   readonly conversationId: string;
   readonly url: string;
@@ -100,6 +105,8 @@ export interface DiagnosticCaptureInput {
  * automation. Implementations must not persist runs or mutate scheduler state.
  */
 export interface BrowserAdapter {
+  readonly operationGate?: BrowserOperationGate;
+
   getStatus(): Promise<BrowserStatusSnapshot>;
 
   createConversation(

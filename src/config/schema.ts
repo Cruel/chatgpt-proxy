@@ -188,6 +188,14 @@ export function createConfigSchema(
         })),
     })
     .superRefine((value, context) => {
+      if (/^\/mnt\/[a-z](?:\/|$)/i.test(value.chatgpt.profileDirectory)) {
+        context.addIssue({
+          code: "custom",
+          path: ["chatgpt", "profile_dir"],
+          message:
+            "The persistent browser profile must use the WSL filesystem, not a mounted Windows drive",
+        });
+      }
       if (value.live_tests.enabled && value.live_tests.projectUrl === "") {
         context.addIssue({
           code: "custom",

@@ -33,22 +33,16 @@ export function createProxyRuntime(
     adapter: options.adapter,
     config: options.config,
   });
-  const queue = new DurableRunQueue(
-    options.logger === undefined
-      ? {
-          persistence,
-          executor,
-          maxConcurrentRuns: options.config.browser.maxConcurrentRuns,
-          maxQueueDepth: options.config.limits.maxQueueDepth,
-        }
-      : {
-          persistence,
-          executor,
-          maxConcurrentRuns: options.config.browser.maxConcurrentRuns,
-          maxQueueDepth: options.config.limits.maxQueueDepth,
-          logger: options.logger,
-        },
-  );
+  const queue = new DurableRunQueue({
+    persistence,
+    executor,
+    maxConcurrentRuns: options.config.browser.maxConcurrentRuns,
+    maxQueueDepth: options.config.limits.maxQueueDepth,
+    ...(options.adapter.operationGate === undefined
+      ? {}
+      : { dispatchGate: options.adapter.operationGate }),
+    ...(options.logger === undefined ? {} : { logger: options.logger }),
+  });
   queue.start();
   const service = new ProxyService(
     options.config,

@@ -6,6 +6,7 @@ export {
   type ExecutionProgress,
   type RunExecutionContext,
   type RunExecutionResult,
+  type RunDispatchGate,
   type RunExecutor,
 } from "./durable-run-queue.js";
 export {

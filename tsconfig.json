@@ -28,6 +28,7 @@
     "scripts/**/*.ts",
     "tests/**/*.ts",
     "eslint.config.js",
+    "playwright.config.ts",
     "vitest.config.ts",
     "vitest.live.config.ts"
   ],
