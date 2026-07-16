@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { isAbsolute } from "node:path";
 
 import { loadConfig } from "../src/config/index.js";
 
@@ -33,6 +34,9 @@ async function main(): Promise<void> {
   if (configPath === undefined || configPath === "") {
     throw new Error("CHATGPT_PROXY_CONFIG must name an absolute TOML config path");
   }
+  if (!isAbsolute(configPath)) {
+    throw new Error("CHATGPT_PROXY_CONFIG must be an absolute path");
+  }
 
   const config = await loadConfig(configPath);
   if (!config.liveTests.enabled) {
@@ -41,6 +45,11 @@ async function main(): Promise<void> {
 
   if (mode === "delete") {
     requireEnvironment("CHATGPT_PROXY_LIVE_DELETE");
+    if (!config.chatGpt.deleteRemoteThread) {
+      throw new Error(
+        "chatgpt.delete_remote_thread must be true for destructive live tests",
+      );
+    }
     if (!config.liveTests.allowRemoteDeletion) {
       throw new Error(
         "live_tests.allow_remote_deletion must be true for destructive live tests",

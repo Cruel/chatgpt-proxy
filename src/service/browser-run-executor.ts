@@ -104,7 +104,14 @@ export class BrowserRunExecutor implements RunExecutor {
         context,
       );
       const thread = context.persistence.threads.getRequiredById(run.threadId);
-      if (thread.state !== "delete_pending") {
+      if (run.operationType === "delete_thread") {
+        context.persistence.threads.setState(
+          thread.id,
+          "delete_failed",
+          "unexpected_state",
+          message,
+        );
+      } else if (thread.state !== "delete_pending") {
         context.persistence.threads.setState(
           thread.id,
           "error",
@@ -275,9 +282,7 @@ export class BrowserRunExecutor implements RunExecutor {
         });
         return { outcome: "succeeded", finalResponse: null };
       }
-      context.persistence.threads.setState(thread.id, "delete_pending");
-      context.persistence.threads.setState(thread.id, "deleted_local");
-      context.recordEvent("local_thread_tombstoned", { remote_deleted: false });
+      this.tombstoneThread(thread.id, false, context);
       return { outcome: "succeeded", finalResponse: null };
     }
 
@@ -294,8 +299,6 @@ export class BrowserRunExecutor implements RunExecutor {
         errorMessage: "Remote deletion is disabled by configuration",
       };
     }
-
-    context.persistence.threads.setState(thread.id, "delete_pending");
 
     const conversation = remoteReference(thread);
     if (conversation === null) {
@@ -333,8 +336,7 @@ export class BrowserRunExecutor implements RunExecutor {
         outcome: "already_absent",
         evidence: ["local remote mapping was absent"],
       });
-      context.persistence.threads.setState(thread.id, "deleted_remote");
-      context.recordEvent("local_thread_tombstoned", { remote_deleted: true });
+      this.tombstoneThread(thread.id, true, context);
       return { outcome: "succeeded", finalResponse: null };
     }
 
@@ -376,9 +378,24 @@ export class BrowserRunExecutor implements RunExecutor {
       };
     }
 
-    context.persistence.threads.setState(thread.id, "deleted_remote");
-    context.recordEvent("local_thread_tombstoned", { remote_deleted: true });
+    this.tombstoneThread(thread.id, true, context);
     return { outcome: "succeeded", finalResponse: null };
+  }
+
+  private tombstoneThread(
+    threadId: string,
+    remoteDeleted: boolean,
+    context: RunExecutionContext,
+  ): void {
+    context.persistence.transaction(() => {
+      context.persistence.threads.setState(
+        threadId,
+        remoteDeleted ? "deleted_remote" : "deleted_local",
+      );
+      context.recordEvent("local_thread_tombstoned", {
+        remote_deleted: remoteDeleted,
+      });
+    });
   }
 
   private requireInput(run: RunRecord): string {

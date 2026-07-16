@@ -387,6 +387,188 @@ test("captures screenshot, HTML, DOM metadata, and trace for an unknown UI", asy
   }
 });
 
+test("deletes a conversation only after validating the confirmation dialog", async () => {
+  const resources = await createResources();
+  try {
+    const conversationId = "delete-success";
+    const adapter = createAdapter(resources, "/project/example");
+    await adapter.start();
+
+    const result = await adapter.deleteConversation(
+      {
+        conversationId,
+        url: `${resources.server.baseUrl}/c/${conversationId}?scenario=delete-success`,
+        title: "Fixture Conversation",
+      },
+      operationContext(),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: { outcome: "deleted" },
+    });
+    expect(resources.server.isConversationDeleted(conversationId)).toBe(true);
+    expect(resources.server.deleteRequestCount(conversationId)).toBe(1);
+  } finally {
+    await disposeResources(resources);
+  }
+});
+
+test("recovers a confirmed deletion by verifying absence without clicking twice", async () => {
+  const resources = await createResources();
+  try {
+    const conversationId = "delete-verify-by-reload";
+    const adapter = createAdapter(resources, "/project/example");
+    await adapter.start();
+
+    const result = await adapter.deleteConversation(
+      {
+        conversationId,
+        url: `${resources.server.baseUrl}/c/${conversationId}?scenario=delete-verify-by-reload`,
+        title: null,
+      },
+      operationContext(),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: { outcome: "deleted" },
+    });
+    expect(resources.server.deleteRequestCount(conversationId)).toBe(1);
+  } finally {
+    await disposeResources(resources);
+  }
+});
+
+test("treats a missing remote conversation as idempotently absent", async () => {
+  const resources = await createResources();
+  try {
+    const adapter = createAdapter(resources, "/project/example");
+    await adapter.start();
+
+    const result = await adapter.deleteConversation(
+      {
+        conversationId: "missing-conversation",
+        url: `${resources.server.baseUrl}/c/missing-conversation`,
+        title: null,
+      },
+      operationContext(),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: { outcome: "already_absent" },
+    });
+    expect(resources.server.deleteRequestCount("missing-conversation")).toBe(0);
+  } finally {
+    await disposeResources(resources);
+  }
+});
+
+test("refuses an unvalidated deletion dialog without clicking confirm", async () => {
+  const resources = await createResources();
+  try {
+    const conversationId = "delete-malformed-dialog";
+    const adapter = createAdapter(resources, "/project/example");
+    await adapter.start();
+
+    const result = await adapter.deleteConversation(
+      {
+        conversationId,
+        url: `${resources.server.baseUrl}/c/${conversationId}?scenario=delete-malformed-dialog`,
+        title: null,
+      },
+      operationContext(),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "remote_delete_failed", retryable: false },
+    });
+    expect(resources.server.deleteRequestCount(conversationId)).toBe(0);
+    expect(resources.server.isConversationDeleted(conversationId)).toBe(false);
+  } finally {
+    await disposeResources(resources);
+  }
+});
+
+test("preserves an ambiguous deletion instead of blindly retrying", async () => {
+  const resources = await createResources();
+  try {
+    const conversationId = "delete-ambiguous";
+    const adapter = createAdapter(resources, "/project/example");
+    await adapter.start();
+
+    const result = await adapter.deleteConversation(
+      {
+        conversationId,
+        url: `${resources.server.baseUrl}/c/${conversationId}?scenario=delete-ambiguous`,
+        title: null,
+      },
+      operationContext(),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: { outcome: "ambiguous" },
+    });
+    expect(resources.server.deleteRequestCount(conversationId)).toBe(0);
+    expect(resources.server.isConversationDeleted(conversationId)).toBe(false);
+  } finally {
+    await disposeResources(resources);
+  }
+});
+
+test("reports a changed UI when the conversation action menu is absent", async () => {
+  const resources = await createResources();
+  try {
+    const conversationId = "delete-missing-action-menu";
+    const adapter = createAdapter(resources, "/project/example");
+    await adapter.start();
+
+    const result = await adapter.deleteConversation(
+      {
+        conversationId,
+        url: `${resources.server.baseUrl}/c/${conversationId}?scenario=delete-missing-action-menu`,
+        title: null,
+      },
+      operationContext(),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "ui_changed" },
+    });
+    expect(resources.server.deleteRequestCount(conversationId)).toBe(0);
+  } finally {
+    await disposeResources(resources);
+  }
+});
+
+test("treats a deleted conversation redirecting to a project composer as missing", async () => {
+  const resources = await createResources();
+  try {
+    const adapter = createAdapter(resources, "/project/example");
+    await adapter.start();
+
+    const result = await adapter.inspectConversation(
+      {
+        conversationId: "deleted-redirect-shell",
+        url: `${resources.server.baseUrl}/c/deleted-redirect-shell?scenario=deleted-redirect-shell`,
+        title: null,
+      },
+      operationContext(),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: { state: "missing", conversation: null },
+    });
+  } finally {
+    await disposeResources(resources);
+  }
+});
+
 test("inspects ready, generating, and missing conversations", async () => {
   const resources = await createResources();
   try {

@@ -9,6 +9,8 @@ export type FixtureSessionState =
 export interface BrowserFixtureServer {
   readonly baseUrl: string;
   setSessionState(state: FixtureSessionState): void;
+  isConversationDeleted(conversationId: string): boolean;
+  deleteRequestCount(conversationId: string): number;
   close(): Promise<void>;
 }
 
@@ -168,10 +170,22 @@ function interactiveChatHtml(
 ): string {
   const requiresNewChat = scenario === "requires-new-chat";
   const delayedComposer = scenario === "delayed-composer";
-  const composerVisibility = requiresNewChat || delayedComposer ? " hidden" : "";
+  const deletedRedirectShell = scenario === "deleted-redirect-shell";
+  const composerVisibility =
+    requiresNewChat || delayedComposer || deletedRedirectShell ? " hidden" : "";
   const initialTurns =
-    mode === "conversation"
+    mode === "conversation" && !deletedRedirectShell
       ? '<article data-testid="assistant-turn" data-message-author-role="assistant"><div class="markdown">Existing answer</div><button aria-label="Copy">Copy</button></article>'
+      : "";
+  const deletionControls =
+    mode === "conversation" &&
+    scenario !== "delete-missing-action-menu" &&
+    !deletedRedirectShell
+      ? `
+      <button data-testid="conversation-options-button" aria-label="Open conversation options" type="button">Options</button>
+      <div id="conversation-menu" role="menu" hidden>
+        ${scenario === "delete-missing-menu-item" ? "" : '<div data-testid="delete-chat-menu-item" role="menuitem" tabindex="0">Delete</div>'}
+      </div>`
       : "";
   return `<!doctype html>
 <html lang="en">
@@ -180,6 +194,7 @@ function interactiveChatHtml(
     <main>
       <h1>Project fixture</h1>
       <button data-testid="new-chat-button" type="button">New chat</button>
+      ${deletionControls}
       <section id="turns">${initialTurns}</section>
       <div id="prompt-textarea" contenteditable="true" role="textbox"${composerVisibility}></div>
       <button data-testid="send-button" aria-label="Send prompt" type="button"${composerVisibility}>Send</button>
@@ -191,6 +206,9 @@ function interactiveChatHtml(
       const composer = document.getElementById('prompt-textarea');
       const turns = document.getElementById('turns');
       const send = document.querySelector('[data-testid="send-button"]');
+      const conversationMenuButton = document.querySelector('[data-testid="conversation-options-button"]');
+      const conversationMenu = document.getElementById('conversation-menu');
+      const deleteMenuItem = document.querySelector('[data-testid="delete-chat-menu-item"]');
       document.querySelector('[data-testid="new-chat-button"]').addEventListener('click', () => {
         composer.hidden = false;
         send.hidden = false;
@@ -207,6 +225,43 @@ function interactiveChatHtml(
           send.hidden = false;
         }, 350);
       }
+      if (scenario === 'deleted-redirect-shell') {
+        setTimeout(() => {
+          composer.hidden = false;
+          send.hidden = false;
+        }, 150);
+        setTimeout(() => {
+          history.replaceState(null, '', '/project/example');
+        }, 500);
+      }
+
+      conversationMenuButton?.addEventListener('click', () => {
+        conversationMenu.hidden = false;
+      });
+      deleteMenuItem?.addEventListener('click', () => {
+        conversationMenu.hidden = true;
+        const dialog = document.createElement('div');
+        dialog.setAttribute('role', 'dialog');
+        dialog.setAttribute('aria-modal', 'true');
+        if (scenario === 'delete-malformed-dialog') {
+          dialog.innerHTML = '<h2>Confirm action?</h2><button data-testid="delete-conversation-confirm-button">Delete</button><button>Cancel</button>';
+        } else {
+          dialog.innerHTML = '<h2>Delete chat?</h2><p>This will delete Fixture Conversation.</p><button data-testid="delete-conversation-confirm-button">Delete</button><button>Cancel</button>';
+        }
+        document.querySelector('main').append(dialog);
+        dialog.querySelector('button:last-child').addEventListener('click', () => dialog.remove());
+        dialog.querySelector('[data-testid="delete-conversation-confirm-button"]').addEventListener('click', async () => {
+          dialog.remove();
+          if (scenario === 'delete-ambiguous') {
+            return;
+          }
+          await fetch('/fixture-delete/' + conversationId, { method: 'POST' });
+          if (scenario !== 'delete-verify-by-reload') {
+            history.replaceState(null, '', '/project/example');
+            document.querySelector('main').innerHTML = '<h1>Project fixture</h1><div id="prompt-textarea" contenteditable="true" role="textbox"></div>';
+          }
+        });
+      });
 
       function addAlert(text) {
         const alert = document.createElement('div');
@@ -363,6 +418,8 @@ function sendJson(response: ServerResponse, body: unknown): void {
 
 export async function startBrowserFixtureServer(): Promise<BrowserFixtureServer> {
   let sessionState: FixtureSessionState = "auth_required";
+  const deletedConversationIds = new Set<string>();
+  const deleteRequestCounts = new Map<string, number>();
   const server = createServer(
     (request: IncomingMessage, response: ServerResponse) => {
       const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
@@ -384,6 +441,22 @@ export async function startBrowserFixtureServer(): Promise<BrowserFixtureServer>
         response.end();
         return;
       }
+      if (
+        request.method === "POST" &&
+        requestUrl.pathname.startsWith("/fixture-delete/")
+      ) {
+        const conversationId = decodeURIComponent(
+          requestUrl.pathname.slice("/fixture-delete/".length),
+        );
+        deleteRequestCounts.set(
+          conversationId,
+          (deleteRequestCounts.get(conversationId) ?? 0) + 1,
+        );
+        deletedConversationIds.add(conversationId);
+        response.writeHead(204, { "cache-control": "no-store" });
+        response.end();
+        return;
+      }
 
       if (requestUrl.pathname === "/project/example") {
         sendHtml(
@@ -398,7 +471,10 @@ export async function startBrowserFixtureServer(): Promise<BrowserFixtureServer>
       }
       if (requestUrl.pathname.startsWith("/c/")) {
         const conversationId = requestUrl.pathname.slice("/c/".length);
-        if (conversationId === "missing-conversation") {
+        if (
+          conversationId === "missing-conversation" ||
+          deletedConversationIds.has(conversationId)
+        ) {
           sendHtml(response, html(FIXTURE_PAGES["/missing-conversation"]!));
           return;
         }
@@ -436,6 +512,12 @@ export async function startBrowserFixtureServer(): Promise<BrowserFixtureServer>
     baseUrl: `http://127.0.0.1:${address.port}`,
     setSessionState(state) {
       sessionState = state;
+    },
+    isConversationDeleted(conversationId) {
+      return deletedConversationIds.has(conversationId);
+    },
+    deleteRequestCount(conversationId) {
+      return deleteRequestCounts.get(conversationId) ?? 0;
     },
     close: () =>
       new Promise<void>((resolve, reject) => {

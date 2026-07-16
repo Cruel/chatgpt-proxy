@@ -38,6 +38,7 @@ import {
   observePageDiagnostics,
   type PageDiagnosticObservation,
 } from "./diagnostics.js";
+import { deleteRemoteConversation } from "./deletion.js";
 import { detectBlockingFailure } from "./error-detector.js";
 import { submitMessage } from "./message-submission.js";
 import {
@@ -428,17 +429,14 @@ export class ChatGptBrowserAdapter implements BrowserAdapter {
 
   public deleteConversation(
     conversation: RemoteConversationReference,
+    context: BrowserOperationContext,
   ): Promise<BrowserAdapterResult<RemoteDeletionResult>> {
-    return Promise.resolve({
-      ok: false,
-      error: {
-        code: "remote_delete_failed",
-        message:
-          "Remote ChatGPT conversation deletion is not implemented until Phase 7",
-        retryable: false,
-        observedUrl: conversation.url,
-      },
-    });
+    return this.withLease<RemoteDeletionResult>(context, (page) =>
+      deleteRemoteConversation(page, this.manager, conversation, context, {
+        navigationTimeoutMs: this.navigationTimeoutMs,
+        pollIntervalMs: this.pollIntervalMs,
+      }),
+    );
   }
 
   public captureDiagnostics(

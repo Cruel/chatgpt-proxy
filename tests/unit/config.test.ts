@@ -158,6 +158,50 @@ enabled = true
     ).toThrow(/live-test project URL/);
   });
 
+  it("requires both live-test and production deletion gates", () => {
+    expect(() =>
+      parseConfigText(
+        `${MINIMAL_CONFIG}
+
+[live_tests]
+allow_remote_deletion = true
+`,
+        { homeDirectory: HOME_DIRECTORY },
+      ),
+    ).toThrow(/live tests are disabled/);
+
+    expect(() =>
+      parseConfigText(
+        `${MINIMAL_CONFIG}
+
+[live_tests]
+enabled = true
+project_url = "https://chatgpt.com/g/g-p-live/project"
+allow_remote_deletion = true
+`,
+        { homeDirectory: HOME_DIRECTORY },
+      ),
+    ).toThrow(/chatgpt\.delete_remote_thread/);
+
+    const enabled = parseConfigText(
+      `
+[server]
+api_token = "test-token"
+
+[chatgpt]
+project_url = "https://chatgpt.com/g/g-p-example/project"
+delete_remote_thread = true
+
+[live_tests]
+enabled = true
+project_url = "https://chatgpt.com/g/g-p-live/project"
+allow_remote_deletion = true
+`,
+      { homeDirectory: HOME_DIRECTORY },
+    );
+    expect(enabled.liveTests.allowRemoteDeletion).toBe(true);
+  });
+
   it("rejects persistent browser profiles on mounted Windows drives", () => {
     expect(() =>
       parseConfigText(

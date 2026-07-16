@@ -203,6 +203,25 @@ export function createConfigSchema(
           message: "A live-test project URL is required when live tests are enabled",
         });
       }
+      if (value.live_tests.allowRemoteDeletion && !value.live_tests.enabled) {
+        context.addIssue({
+          code: "custom",
+          path: ["live_tests", "allow_remote_deletion"],
+          message:
+            "Live remote deletion cannot be enabled while live tests are disabled",
+        });
+      }
+      if (
+        value.live_tests.allowRemoteDeletion &&
+        !value.chatgpt.deleteRemoteThread
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["live_tests", "allow_remote_deletion"],
+          message:
+            "Live remote deletion also requires chatgpt.delete_remote_thread",
+        });
+      }
     })
     .transform((value) => ({
       server: value.server,

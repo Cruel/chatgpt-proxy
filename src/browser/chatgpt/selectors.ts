@@ -22,6 +22,27 @@ export const CHATGPT_SELECTORS = {
     'main button:has-text("New chat")',
     'main button:has-text("Start a new chat")',
   ],
+  conversationActionMenu: [
+    '[data-testid="conversation-options-button"]',
+    'button[aria-label="Open conversation options"]',
+    'button[aria-label^="Open conversation options for "]',
+  ],
+  deleteMenuItem: [
+    '[data-testid="delete-chat-menu-item"]',
+    '[role="menuitem"]:has-text("Delete")',
+  ],
+  deleteConfirmationDialog: [
+    '[role="dialog"]:has([data-testid="delete-conversation-confirm-button"])',
+    '[role="dialog"]:has-text("Delete chat")',
+    '[role="dialog"]:has-text("Delete conversation")',
+  ],
+  deleteConfirmButton: [
+    '[data-testid="delete-conversation-confirm-button"]',
+    'button:has-text("Delete")',
+  ],
+  deleteCancelButton: [
+    'button:has-text("Cancel")',
+  ],
   assistantTurns: [
     '[data-message-author-role="assistant"]',
     'article[data-testid="assistant-turn"]',

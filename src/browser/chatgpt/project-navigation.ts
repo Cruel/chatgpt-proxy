@@ -5,6 +5,7 @@ import type { BrowserManager } from "../manager.js";
 import { detectBlockingFailure } from "./error-detector.js";
 import {
   CHATGPT_SELECTORS,
+  firstPopulatedCollection,
   firstVisibleLocator,
 } from "./selectors.js";
 import {
@@ -85,6 +86,55 @@ async function navigate(
     const message = error instanceof Error ? error.message : String(error);
     return navigationFailure(page, `Failed to navigate to ${url}: ${message}`);
   }
+}
+
+async function waitForExistingConversationEvidence(
+  page: Page,
+  manager: BrowserManager,
+  conversationId: string,
+  deadline: number,
+): Promise<BrowserAdapterFailure | null> {
+  while (!page.isClosed() && Date.now() < deadline) {
+    const blockingFailure = await detectBlockingFailure(page, manager);
+    if (blockingFailure !== null) {
+      return blockingFailure;
+    }
+
+    const observedConversationId = extractConversationId(page.url());
+    if (observedConversationId !== conversationId) {
+      return {
+        code: "thread_not_found",
+        message:
+          observedConversationId === null
+            ? `Conversation '${conversationId}' redirected away from a conversation page`
+            : `Expected conversation '${conversationId}' but loaded '${observedConversationId}'`,
+        retryable: false,
+        observedUrl: page.url(),
+      };
+    }
+
+    const userTurns = await firstPopulatedCollection(
+      page,
+      CHATGPT_SELECTORS.userTurns,
+    );
+    const assistantTurns = await firstPopulatedCollection(
+      page,
+      CHATGPT_SELECTORS.assistantTurns,
+    );
+    if ((await userTurns.count()) > 0 || (await assistantTurns.count()) > 0) {
+      return null;
+    }
+
+    await delay(NAVIGATION_POLL_INTERVAL_MS);
+  }
+
+  return {
+    code: "thread_not_found",
+    message:
+      `Conversation '${conversationId}' did not expose any persisted conversation turns`,
+    retryable: false,
+    observedUrl: page.isClosed() ? null : page.url(),
+  };
 }
 
 export async function openProjectForNewConversation(
@@ -182,14 +232,27 @@ export async function openExistingConversation(
     };
   }
 
+  const deadline = Date.now() + input.navigationTimeoutMs;
   const controls = await waitForNavigationControls(
     page,
     manager,
-    Date.now() + input.navigationTimeoutMs,
+    deadline,
     false,
   );
   if (controls.failure !== null) {
     return controls.failure;
+  }
+  const finalConversationId = extractConversationId(page.url());
+  if (finalConversationId !== input.conversationId) {
+    return {
+      code: "thread_not_found",
+      message:
+        finalConversationId === null
+          ? `Conversation '${input.conversationId}' redirected away from a conversation page`
+          : `Expected conversation '${input.conversationId}' but loaded '${finalConversationId}'`,
+      retryable: false,
+      observedUrl: page.url(),
+    };
   }
   if (controls.composer === null) {
     return {
@@ -200,5 +263,10 @@ export async function openExistingConversation(
       observedUrl: page.url(),
     };
   }
-  return null;
+  return waitForExistingConversationEvidence(
+    page,
+    manager,
+    input.conversationId,
+    deadline,
+  );
 }

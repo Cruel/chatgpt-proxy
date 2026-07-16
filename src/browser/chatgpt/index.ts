@@ -12,6 +12,7 @@ export {
   type SubmissionSnapshot,
 } from "./completion-detector.js";
 export { detectBlockingFailure } from "./error-detector.js";
+export { deleteRemoteConversation } from "./deletion.js";
 export {
   KNOWN_ALERT_DETECTORS,
   KNOWN_TRANSIENT_STATUS_PATTERNS,

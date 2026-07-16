@@ -148,6 +148,40 @@ describe("CLI HTTP client", () => {
     expect(fetchImplementation).not.toHaveBeenCalled();
   });
 
+  it("allows an explicit --yes remote deletion without prompting", async () => {
+    const confirmRemoteDeletion = vi.fn(() => Promise.resolve(false));
+    let capturedBody: unknown;
+    const executor = new HttpCliExecutor({
+      confirmRemoteDeletion,
+      stdout: { write: () => true },
+      fetchImplementation: (_input, init) => {
+        if (typeof init?.body !== "string") {
+          throw new Error("Expected a JSON request body");
+        }
+        capturedBody = JSON.parse(init.body) as unknown;
+        return Promise.resolve(
+          new Response(JSON.stringify({ run: {}, thread: {} }), {
+            status: 200,
+          }),
+        );
+      },
+    });
+
+    await executor.execute(
+      invocation({
+        kind: "delete",
+        name: "review",
+        remote: true,
+        yes: true,
+        wait: true,
+        idempotencyKey: "delete-review",
+      }),
+    );
+
+    expect(confirmRemoteDeletion).not.toHaveBeenCalled();
+    expect(capturedBody).toEqual({ delete_remote: true, wait: true });
+  });
+
   it("preserves structured server errors for JSON output", () => {
     const error = new CliHttpError(
       "Remote deletion is disabled",

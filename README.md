@@ -3,7 +3,7 @@
 A local, single-user service that will expose a small HTTP API and CLI over a
 persistent Playwright-controlled ChatGPT browser session.
 
-The repository currently contains the Phase 1 through Phase 6 foundations:
+The repository currently contains the Phase 1 through Phase 7 foundations:
 validated TOML configuration, domain contracts, versioned SQLite persistence,
 durable scheduling, bounded cross-thread concurrency, same-thread serialization,
 restart reconciliation, bearer-authenticated Fastify endpoints, a complete HTTP
@@ -13,8 +13,9 @@ leasing, profile reuse, and automatic browser recovery, plus real project
 navigation, conversation creation and continuation, submission confirmation,
 tool-progress filtering, final-response extraction, selector and error
 registries, non-duplicating submission/response recovery, persisted diagnostic
-artifacts, retention pruning, and a sanitized fixture-corpus workflow. Remote
-conversation deletion remains deferred to Phase 7.
+artifacts, retention pruning, a sanitized fixture-corpus workflow, and
+conservative real ChatGPT conversation deletion with confirmation validation,
+absence verification, ambiguity preservation, and atomic local tombstoning.
 
 ## Development
 
@@ -123,8 +124,10 @@ pnpm cli delete example
 
 `cgpt delete <name>` only tombstones local state. Remote deletion additionally
 requires `--remote`, server-side permission, and interactive confirmation or
-`--yes`. In Phase 3 the fake adapter exercises this policy without contacting
-ChatGPT.
+`--yes`. The browser adapter activates Delete only after it verifies the loaded
+conversation ID, the action menu, and a recognizable deletion confirmation. It
+then verifies remote absence; an inconclusive result preserves the local mapping
+in `needs_attention` rather than clicking Delete again.
 
 ## Test boundaries
 
@@ -143,4 +146,15 @@ The configuration must also set `live_tests.enabled = true` and provide a direct
 `live_tests.project_url`. The standard live suite creates one uniquely marked
 conversation and sends one follow-up; it does not delete that conversation.
 Destructive live deletion additionally requires `CHATGPT_PROXY_LIVE_DELETE=1`
-and `live_tests.allow_remote_deletion = true`.
+plus both `chatgpt.delete_remote_thread = true` and
+`live_tests.allow_remote_deletion = true`:
+
+```bash
+CHATGPT_PROXY_LIVE_TESTS=1 \
+CHATGPT_PROXY_LIVE_DELETE=1 \
+CHATGPT_PROXY_CONFIG=/absolute/path/to/config.toml \
+pnpm test:live:delete
+```
+
+That suite creates a uniquely marked conversation and deletes only the exact
+conversation reference returned by its own create operation.

@@ -46,6 +46,47 @@ async function remoteDelete(testRuntime: TestRuntime, name: string) {
 }
 
 describe("remote deletion outcomes", () => {
+  it("rolls back the local tombstone when its audit event cannot commit", async () => {
+    const testRuntime = runtime();
+    await create(testRuntime, "atomic-local-delete");
+    testRuntime.persistence.database.exec(`
+      CREATE TRIGGER fail_local_tombstone_event
+      BEFORE INSERT ON run_events
+      WHEN NEW.event_type = 'local_thread_tombstoned'
+      BEGIN
+        SELECT RAISE(ABORT, 'forced tombstone audit failure');
+      END;
+    `);
+
+    const response = await testRuntime.runtime.app.inject({
+      method: "DELETE",
+      url: "/v1/threads/atomic-local-delete",
+      headers: authenticatedHeaders({
+        "idempotency-key": "delete-atomic-local-delete",
+      }),
+      payload: { delete_remote: false, wait: true },
+    });
+    expect(response.statusCode).toBe(502);
+    const error = apiErrorResponseSchema.parse(response.json()).error;
+    expect(error.code).toBe("unexpected_state");
+    const runId = String(error.details?.runId);
+
+    const infoResponse = await testRuntime.runtime.app.inject({
+      method: "GET",
+      url: "/v1/threads/atomic-local-delete",
+      headers: authenticatedHeaders(),
+    });
+    const info = threadDetailResponseSchema.parse(infoResponse.json());
+    expect(info.thread.state).toBe("delete_failed");
+    expect(info.thread.deletedAt).toBeNull();
+    expect(info.thread.remoteConversationId).not.toBeNull();
+    expect(
+      testRuntime.persistence.runEvents
+        .listByRun(runId)
+        .some((event) => event.eventType === "local_thread_tombstoned"),
+    ).toBe(false);
+  });
+
   it("confirms deletion before tombstoning locally", async () => {
     const testRuntime = runtime();
     await create(testRuntime, "remote-success");
