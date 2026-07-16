@@ -3,15 +3,16 @@
 A local, single-user service that will expose a small HTTP API and CLI over a
 persistent Playwright-controlled ChatGPT browser session.
 
-The repository currently contains the Phase 1 through Phase 4 foundations:
+The repository currently contains the Phase 1 through Phase 5 foundations:
 validated TOML configuration, domain contracts, versioned SQLite persistence,
 durable scheduling, bounded cross-thread concurrency, same-thread serialization,
 restart reconciliation, bearer-authenticated Fastify endpoints, a complete HTTP
-CLI, conservative deletion behavior, a deterministic fake browser adapter, and
-a persistent Playwright Chromium lifecycle with login-state gating, bounded tab
-leasing, profile reuse, and automatic browser recovery. The fake server still
-does not open a browser or contact ChatGPT; ChatGPT conversation automation is
-implemented in Phase 5.
+CLI, conservative deletion behavior, a deterministic fake browser adapter, a
+persistent Playwright Chromium lifecycle with login-state gating, bounded tab
+leasing, profile reuse, and automatic browser recovery, plus real project
+navigation, conversation creation and continuation, submission confirmation,
+tool-progress filtering, and final-response extraction. Remote conversation
+deletion remains deferred to Phase 7.
 
 ## Development
 
@@ -28,6 +29,20 @@ pnpm browser:install
 pnpm test:ci
 pnpm build
 ```
+
+Authenticate the dedicated profile once in a normal browser session that is
+not controlled by Playwright:
+
+```bash
+pnpm browser:profile-login
+```
+
+Complete Google and ChatGPT login, verify the configured project opens, then
+close every browser window completely before starting the proxy or live tests.
+The command uses Playwright's installed Chromium when `browser.channel` is
+`chromium`, which is the default. Set the channel to `chrome` and run
+`pnpm browser:install:chrome` only when branded Google Chrome is preferred. Do
+not attempt Google login while the browser is under Playwright control.
 
 On a new Debian/Ubuntu/WSL environment, install Chromium and its operating
 system dependencies with:
@@ -54,6 +69,17 @@ Run the Phase 3 service with the fake adapter:
 ```bash
 pnpm server:fake
 ```
+
+Run the real persistent-browser service with:
+
+```bash
+pnpm server:playwright
+```
+
+The first run opens headed Playwright Chromium using `profile_dir`. Complete
+ChatGPT login or browser verification in that window. The HTTP server remains
+available while queued mutations stay paused until the configured project page
+is recognized as authenticated.
 
 In another terminal, pass the configured token to the CLI:
 
@@ -86,6 +112,8 @@ CHATGPT_PROXY_CONFIG=/absolute/path/to/config.toml \
 pnpm test:live
 ```
 
-The configuration must also set `live_tests.enabled = true`. Destructive live
-deletion additionally requires `CHATGPT_PROXY_LIVE_DELETE=1` and
-`live_tests.allow_remote_deletion = true`.
+The configuration must also set `live_tests.enabled = true` and provide a direct
+`live_tests.project_url`. The standard live suite creates one uniquely marked
+conversation and sends one follow-up; it does not delete that conversation.
+Destructive live deletion additionally requires `CHATGPT_PROXY_LIVE_DELETE=1`
+and `live_tests.allow_remote_deletion = true`.

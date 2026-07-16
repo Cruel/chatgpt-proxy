@@ -27,6 +27,8 @@
     "build": "tsc -p tsconfig.build.json",
     "browser:install": "playwright install chromium",
     "browser:install:with-deps": "playwright install --with-deps chromium",
+    "browser:install:chrome": "playwright install chrome",
+    "browser:profile-login": "tsx scripts/bootstrap-browser-profile.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "pnpm test:unit && pnpm test:integration && pnpm test:browser-fixtures",
@@ -38,7 +40,8 @@
     "test:live:delete": "tsx scripts/run-live-tests.ts --delete",
     "acceptance:live": "tsx scripts/run-live-tests.ts --acceptance",
     "cli": "tsx src/cli/main.ts",
-    "server:fake": "tsx src/server-main.ts"
+    "server:fake": "tsx src/server-main.ts",
+    "server:playwright": "tsx src/playwright-server-main.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",

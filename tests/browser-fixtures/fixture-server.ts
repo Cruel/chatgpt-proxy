@@ -145,6 +145,148 @@ function sessionHtml(): string {
 </html>`;
 }
 
+function hydratingHtml(): string {
+  return `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Loading</title></head>
+  <body>
+    <main id="content"></main>
+    <script>
+      setTimeout(() => {
+        document.title = 'Conversation';
+        document.getElementById('content').innerHTML = '<div id="prompt-textarea" contenteditable="true" role="textbox"></div>';
+      }, 250);
+    </script>
+  </body>
+</html>`;
+}
+
+function interactiveChatHtml(
+  mode: "project" | "conversation",
+  scenario: string,
+  conversationId: string,
+): string {
+  const requiresNewChat = scenario === "requires-new-chat";
+  const delayedComposer = scenario === "delayed-composer";
+  const composerVisibility = requiresNewChat || delayedComposer ? " hidden" : "";
+  const initialTurns =
+    mode === "conversation"
+      ? '<article data-testid="assistant-turn" data-message-author-role="assistant"><div class="markdown">Existing answer</div><button aria-label="Copy">Copy</button></article>'
+      : "";
+  return `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>ChatGPT fixture</title></head>
+  <body>
+    <main>
+      <h1>Project fixture</h1>
+      <button data-testid="new-chat-button" type="button">New chat</button>
+      <section id="turns">${initialTurns}</section>
+      <div id="prompt-textarea" contenteditable="true" role="textbox"${composerVisibility}></div>
+      <button data-testid="send-button" aria-label="Send prompt" type="button"${composerVisibility}>Send</button>
+    </main>
+    <script>
+      const scenario = ${JSON.stringify(scenario)};
+      const conversationId = ${JSON.stringify(conversationId)};
+      const composer = document.getElementById('prompt-textarea');
+      const turns = document.getElementById('turns');
+      const send = document.querySelector('[data-testid="send-button"]');
+      document.querySelector('[data-testid="new-chat-button"]').addEventListener('click', () => {
+        composer.hidden = false;
+        send.hidden = false;
+        composer.focus();
+      });
+      if (scenario === 'delayed-composer') {
+        setTimeout(() => {
+          composer.hidden = false;
+          send.hidden = false;
+        }, 350);
+      }
+
+      function addAlert(text) {
+        const alert = document.createElement('div');
+        alert.setAttribute('role', 'alert');
+        alert.textContent = text;
+        document.querySelector('main').append(alert);
+      }
+
+      function addDialog(text) {
+        const dialog = document.createElement('div');
+        dialog.setAttribute('role', 'dialog');
+        dialog.setAttribute('aria-modal', 'true');
+        dialog.textContent = text;
+        document.querySelector('main').append(dialog);
+      }
+
+      function addUserTurn(message) {
+        const turn = document.createElement('article');
+        turn.dataset.testid = 'user-turn';
+        turn.dataset.messageAuthorRole = 'user';
+        turn.textContent = message;
+        turns.append(turn);
+      }
+
+      function addAssistantProgress(message) {
+        const turn = document.createElement('article');
+        turn.dataset.testid = 'assistant-turn';
+        turn.dataset.messageAuthorRole = 'assistant';
+        turn.innerHTML = '<div class="markdown"><p>Intermediate text that must not be returned</p></div><div data-testid="tool-progress">Searching fixture data</div>';
+        const stop = document.createElement('button');
+        stop.dataset.testid = 'stop-button';
+        stop.textContent = 'Stop';
+        document.querySelector('main').append(stop);
+        turns.append(turn);
+
+        setTimeout(() => {
+          if (scenario === 'tool-failed') {
+            stop.remove();
+            addAlert('Tool execution failed');
+            return;
+          }
+          if (scenario === 'confirmation') {
+            stop.remove();
+            addDialog('Allow ChatGPT to continue?');
+            return;
+          }
+          const markdown = turn.querySelector('.markdown');
+          markdown.innerHTML = '<p>Final response to: ' + message.replaceAll('&', '&amp;').replaceAll('<', '&lt;') + '</p><p>Second paragraph.</p>';
+          turn.querySelector('[data-testid="tool-progress"]').remove();
+          stop.remove();
+          if (scenario !== 'stable-no-copy') {
+            const copy = document.createElement('button');
+            copy.setAttribute('aria-label', 'Copy');
+            copy.textContent = 'Copy';
+            turn.append(copy);
+          }
+        }, 120);
+      }
+
+      send.addEventListener('click', () => {
+        const message = composer.innerText.trim();
+        if (message.length === 0) return;
+        if (scenario === 'no-confirmation') return;
+        if (scenario === 'rate-limited') {
+          addAlert('You have reached the current usage limit');
+          return;
+        }
+        addUserTurn(message);
+        composer.innerHTML = '';
+        if (!location.pathname.includes('/c/')) {
+          history.replaceState(null, '', '/c/' + conversationId + location.search);
+        }
+        addAssistantProgress(message);
+      });
+
+      composer.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+          event.preventDefault();
+          send.click();
+        }
+      });
+    </script>
+  </body>
+</html>`;
+}
+
 function sendHtml(response: ServerResponse, body: string): void {
   response.writeHead(200, {
     "content-type": "text/html; charset=utf-8",
@@ -170,6 +312,10 @@ export async function startBrowserFixtureServer(): Promise<BrowserFixtureServer>
         sendHtml(response, sessionHtml());
         return;
       }
+      if (requestUrl.pathname === "/hydrating") {
+        sendHtml(response, hydratingHtml());
+        return;
+      }
       if (requestUrl.pathname === "/session-state") {
         sendJson(response, { state: sessionState });
         return;
@@ -178,6 +324,34 @@ export async function startBrowserFixtureServer(): Promise<BrowserFixtureServer>
         sessionState = "ready";
         response.writeHead(204, { "cache-control": "no-store" });
         response.end();
+        return;
+      }
+
+      if (requestUrl.pathname === "/project/example") {
+        sendHtml(
+          response,
+          interactiveChatHtml(
+            "project",
+            requestUrl.searchParams.get("scenario") ?? "tool-progress",
+            "fixture-conversation-1",
+          ),
+        );
+        return;
+      }
+      if (requestUrl.pathname.startsWith("/c/")) {
+        const conversationId = requestUrl.pathname.slice("/c/".length);
+        if (conversationId === "missing-conversation") {
+          sendHtml(response, html(FIXTURE_PAGES["/missing-conversation"]!));
+          return;
+        }
+        sendHtml(
+          response,
+          interactiveChatHtml(
+            "conversation",
+            requestUrl.searchParams.get("scenario") ?? "tool-progress",
+            conversationId,
+          ),
+        );
         return;
       }
 

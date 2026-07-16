@@ -40,6 +40,7 @@ export interface BrowserManagerOptions {
   readonly profileDirectory: string;
   readonly startupUrl: string;
   readonly headless: boolean;
+  readonly channel?: "chromium" | "chrome";
   readonly maxConcurrentPages: number;
   readonly pageIdleTimeoutMs: number;
   readonly navigationTimeoutMs: number;
@@ -102,6 +103,7 @@ export class BrowserManager {
   private readonly profileDirectory: string;
   private readonly startupUrl: string;
   private readonly headless: boolean;
+  private readonly channel: "chromium" | "chrome" | undefined;
   private readonly maxConcurrentPages: number;
   private readonly pageIdleTimeoutMs: number;
   private readonly navigationTimeoutMs: number;
@@ -141,6 +143,7 @@ export class BrowserManager {
     this.profileDirectory = options.profileDirectory;
     this.startupUrl = options.startupUrl;
     this.headless = options.headless;
+    this.channel = options.channel;
     this.maxConcurrentPages = options.maxConcurrentPages;
     this.pageIdleTimeoutMs = options.pageIdleTimeoutMs;
     this.navigationTimeoutMs = options.navigationTimeoutMs;
@@ -338,6 +341,7 @@ export class BrowserManager {
       context = await this.launchPersistentContext(this.profileDirectory, {
         headless: this.headless,
         viewport: null,
+        ...(this.channel === undefined ? {} : { channel: this.channel }),
       });
     } catch (error) {
       this.setStatus("unavailable", "Failed to launch persistent Chromium");
@@ -378,7 +382,7 @@ export class BrowserManager {
       );
     }
 
-    const observation = await this.probe.inspect(controlPage);
+    const observation = await this.inspectAfterStartupNavigation(controlPage);
     this.applyObservation(observation);
     this.startPolling();
     return this.getStatus();
@@ -418,6 +422,22 @@ export class BrowserManager {
       this.setStatus("unavailable", "Browser status probe failed");
     }
     return this.getStatus();
+  }
+
+  private async inspectAfterStartupNavigation(
+    page: Page,
+  ): Promise<BrowserStatusObservation> {
+    const deadline = Date.now() + Math.min(this.navigationTimeoutMs, 5_000);
+    let observation = await this.probe.inspect(page);
+    while (
+      observation.status === "unavailable" &&
+      !page.isClosed() &&
+      Date.now() < deadline
+    ) {
+      await delay(100);
+      observation = await this.probe.inspect(page);
+    }
+    return observation;
   }
 
   private async performRecovery(reason: string): Promise<BrowserStatusSnapshot> {
@@ -615,6 +635,7 @@ export function createBrowserManagerFromConfig(
           profileDirectory: config.chatGpt.profileDirectory,
           startupUrl: config.chatGpt.projectUrl,
           headless: config.chatGpt.headless,
+          channel: config.browser.channel,
           maxConcurrentPages: config.browser.maxConcurrentRuns,
           pageIdleTimeoutMs: config.browser.pageIdleTimeoutSeconds * 1_000,
           navigationTimeoutMs: config.browser.navigationTimeoutSeconds * 1_000,
@@ -623,6 +644,7 @@ export function createBrowserManagerFromConfig(
           profileDirectory: config.chatGpt.profileDirectory,
           startupUrl: config.chatGpt.projectUrl,
           headless: config.chatGpt.headless,
+          channel: config.browser.channel,
           maxConcurrentPages: config.browser.maxConcurrentRuns,
           pageIdleTimeoutMs: config.browser.pageIdleTimeoutSeconds * 1_000,
           navigationTimeoutMs: config.browser.navigationTimeoutSeconds * 1_000,

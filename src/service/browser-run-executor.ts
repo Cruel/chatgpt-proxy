@@ -118,7 +118,6 @@ export class BrowserRunExecutor implements RunExecutor {
 
     const result = await this.adapter.createConversation(
       {
-        projectName: this.config.chatGpt.projectName,
         projectUrl: this.config.chatGpt.projectUrl,
         message,
       },
@@ -126,6 +125,17 @@ export class BrowserRunExecutor implements RunExecutor {
         runId: run.id,
         threadId: thread.id,
         signal: context.signal,
+        onConversationIdentified: (conversation) => {
+          context.persistence.threads.setRemoteMapping(thread.id, {
+            conversationId: conversation.conversationId,
+            url: conversation.url,
+            title: conversation.title,
+          });
+          context.recordEvent("remote_conversation_identified", {
+            conversation_id: conversation.conversationId,
+            url: conversation.url,
+          });
+        },
       },
     );
 

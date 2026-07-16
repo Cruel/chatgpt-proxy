@@ -4,13 +4,13 @@ listen_port = 7421
 api_token = "replace-me"
 
 [chatgpt]
-project_name = "Example Project"
 project_url = "https://chatgpt.com/..."
 profile_dir = "./.playwright-profile"
 headless = false
 delete_remote_thread = false
 
 [browser]
+channel = "chromium"
 max_concurrent_runs = 3
 page_idle_timeout_seconds = 300
 navigation_timeout_seconds = 45

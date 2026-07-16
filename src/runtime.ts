@@ -65,6 +65,7 @@ export function createProxyRuntime(
     async close() {
       await app.close();
       await queue.close();
+      await options.adapter.close?.();
       if (ownsPersistence) {
         persistence.close();
       }

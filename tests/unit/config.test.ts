@@ -12,7 +12,6 @@ const MINIMAL_CONFIG = `
 api_token = "test-token"
 
 [chatgpt]
-project_name = "Example Project"
 project_url = "https://chatgpt.com/g/g-p-example/project"
 `;
 
@@ -34,6 +33,7 @@ describe("configuration", () => {
       join(BASE_DIRECTORY, ".playwright-profile"),
     );
     expect(config.browser.maxConcurrentRuns).toBe(3);
+    expect(config.browser.channel).toBe("chromium");
     expect(config.limits.maxInputCharacters).toBe(100_000);
     expect(config.database.path).toBe(
       join(BASE_DIRECTORY, "state.sqlite3"),
@@ -63,7 +63,6 @@ describe("configuration", () => {
 api_token = "test-token"
 
 [chatgpt]
-project_name = "Example Project"
 project_url = "https://chatgpt.com/g/g-p-example/project"
 delete_remote_thread = true
 `,
@@ -83,7 +82,6 @@ delete_remote_thread = true
 api_token = "test-token"
 
 [chatgpt]
-project_name = "Example Project"
 project_url = "https://chatgpt.com/g/g-p-example/project"
 profile_dir = "~/.profiles/chatgpt"
 `,
@@ -105,7 +103,6 @@ profile_dir = "~/.profiles/chatgpt"
 api_token = "test-token"
 
 [chatgpt]
-project_name = "Example Project"
 project_url = "https://chatgpt.com/g/g-p-example/project"
 profile_dir = "./.profile"
 
@@ -141,7 +138,6 @@ listen_host = "0.0.0.0"
 api_token = "test-token"
 
 [chatgpt]
-project_name = "Example Project"
 project_url = "https://example.com/project"
 `,
         { homeDirectory: HOME_DIRECTORY },
@@ -170,7 +166,6 @@ enabled = true
 api_token = "test-token"
 
 [chatgpt]
-project_name = "Example Project"
 project_url = "https://chatgpt.com/g/g-p-example/project"
 profile_dir = "/mnt/c/Users/example/chrome-profile"
 `,

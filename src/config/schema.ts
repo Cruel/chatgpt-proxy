@@ -89,7 +89,6 @@ export function createConfigSchema(
         })),
       chatgpt: z
         .strictObject({
-          project_name: z.string().trim().min(1),
           project_url: chatGptUrlSchema,
           profile_dir: resolvedPathSchema(
             homeDirectory,
@@ -100,7 +99,6 @@ export function createConfigSchema(
           delete_remote_thread: z.boolean().default(false),
         })
         .transform((value) => ({
-          projectName: value.project_name,
           projectUrl: value.project_url,
           profileDirectory: value.profile_dir,
           headless: value.headless,
@@ -108,6 +106,7 @@ export function createConfigSchema(
         })),
       browser: z
         .strictObject({
+          channel: z.enum(["chromium", "chrome"]).default("chromium"),
           max_concurrent_runs: z.number().int().min(1).max(16).default(3),
           page_idle_timeout_seconds: z.number().int().positive().default(300),
           navigation_timeout_seconds: z.number().int().positive().default(45),
@@ -115,6 +114,7 @@ export function createConfigSchema(
         })
         .prefault({})
         .transform((value) => ({
+          channel: value.channel,
           maxConcurrentRuns: value.max_concurrent_runs,
           pageIdleTimeoutSeconds: value.page_idle_timeout_seconds,
           navigationTimeoutSeconds: value.navigation_timeout_seconds,

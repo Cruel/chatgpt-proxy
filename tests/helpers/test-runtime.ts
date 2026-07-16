@@ -23,7 +23,6 @@ export function createTestConfig(
 api_token = "${TEST_API_TOKEN}"
 
 [chatgpt]
-project_name = "Example Project"
 project_url = "https://chatgpt.com/g/g-p-example/project"
 delete_remote_thread = ${remoteDeletionEnabled ? "true" : "false"}
 `,

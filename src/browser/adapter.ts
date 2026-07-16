@@ -4,6 +4,9 @@ export interface BrowserOperationContext {
   readonly runId: string;
   readonly threadId: string;
   readonly signal: AbortSignal;
+  readonly onConversationIdentified?: (
+    conversation: RemoteConversationReference,
+  ) => void;
 }
 
 export interface BrowserStatusSnapshot {
@@ -31,7 +34,6 @@ export interface FinalAssistantResponse {
 }
 
 export interface CreateConversationInput {
-  readonly projectName: string;
   readonly projectUrl: string;
   readonly message: string;
 }
@@ -107,6 +109,8 @@ export interface DiagnosticCaptureInput {
 export interface BrowserAdapter {
   readonly operationGate?: BrowserOperationGate;
 
+  start?(): Promise<BrowserStatusSnapshot>;
+
   getStatus(): Promise<BrowserStatusSnapshot>;
 
   createConversation(
@@ -133,4 +137,6 @@ export interface BrowserAdapter {
     input: DiagnosticCaptureInput,
     context: BrowserOperationContext,
   ): Promise<BrowserAdapterResult<readonly DiagnosticArtifactDraft[]>>;
+
+  close?(): Promise<void>;
 }

@@ -97,6 +97,16 @@ test("authentication states are detected from local fixtures", async () => {
   }
 });
 
+test("startup waits through transient client hydration", async () => {
+  const resources = await createResources();
+  try {
+    const manager = createManager(resources, "/hydrating");
+    await expect(manager.start()).resolves.toMatchObject({ status: "ready" });
+  } finally {
+    await disposeResources(resources);
+  }
+});
+
 test("manual login readiness opens the operation gate without consuming a run page", async () => {
   const resources = await createResources();
   try {

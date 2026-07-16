@@ -47,3 +47,4 @@ export {
   type FakeBrowserAdapterOptions,
   type FakeConversation,
 } from "./fake/index.js";
+export * from "./chatgpt/index.js";
