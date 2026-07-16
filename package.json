@@ -1,0 +1,50 @@
+{
+  "name": "chatgpt-playwright-proxy",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local single-user HTTP proxy for a persistent Playwright-controlled ChatGPT session",
+  "type": "module",
+  "packageManager": "pnpm@11.12.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "cgpt": "./dist/cli/main.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./api": "./dist/api/schemas.js",
+    "./browser": "./dist/browser/adapter.js",
+    "./config": "./dist/config/index.js",
+    "./domain": "./dist/domain/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "pnpm test:unit && pnpm test:integration && pnpm test:browser-fixtures",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration --passWithNoTests",
+    "test:browser-fixtures": "vitest run tests/browser-fixtures --passWithNoTests",
+    "test:ci": "pnpm typecheck && pnpm lint && pnpm test",
+    "test:live": "tsx scripts/run-live-tests.ts",
+    "test:live:delete": "tsx scripts/run-live-tests.ts --delete",
+    "acceptance:live": "tsx scripts/run-live-tests.ts --acceptance",
+    "cli": "tsx src/cli/main.ts"
+  },
+  "dependencies": {
+    "commander": "^15.0.0",
+    "pino": "^10.3.1",
+    "smol-toml": "^1.7.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.1.1",
+    "eslint": "^10.7.0",
+    "tsx": "^4.23.1",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.64.0",
+    "vitest": "^4.1.10"
+  }
+}

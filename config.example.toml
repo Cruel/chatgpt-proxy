@@ -1,0 +1,38 @@
+[server]
+listen_host = "127.0.0.1"
+listen_port = 7421
+api_token = "replace-me"
+
+[chatgpt]
+project_name = "Example Project"
+project_url = "https://chatgpt.com/..."
+profile_dir = "./.playwright-profile"
+headless = false
+delete_remote_thread = false
+
+[browser]
+max_concurrent_runs = 3
+page_idle_timeout_seconds = 300
+navigation_timeout_seconds = 45
+response_timeout_seconds = 1800
+
+[limits]
+max_input_chars = 100000
+max_input_bytes = 262144
+max_queue_depth = 20
+
+[database]
+path = "./state.sqlite3"
+
+[diagnostics]
+artifact_dir = "./.artifacts"
+capture_screenshot_on_error = true
+capture_html_on_error = true
+capture_trace_on_error = true
+retain_days = 30
+
+[live_tests]
+enabled = false
+project_url = ""
+thread_prefix = "chatgpt-proxy-e2e"
+allow_remote_deletion = false
