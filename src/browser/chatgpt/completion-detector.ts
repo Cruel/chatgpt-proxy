@@ -45,13 +45,14 @@ function normalizeSignature(value: string): string {
   return value.replaceAll(/\s+/g, " ").trim().slice(0, 2_000);
 }
 
-async function turnSignature(turn: Locator): Promise<string | null> {
+export async function turnSignature(turn: Locator): Promise<string | null> {
   const text = normalizeSignature(await turn.innerText().catch(() => ""));
   if (text.length === 0) {
     return null;
   }
+  const messageId = await turn.getAttribute("data-message-id").catch(() => null);
   const testId = await turn.getAttribute("data-testid").catch(() => null);
-  return `${testId ?? ""}:${text}`;
+  return `${messageId ?? testId ?? ""}:${text}`;
 }
 
 export async function extractAssistantTurnText(turn: Locator): Promise<string> {
@@ -103,6 +104,27 @@ export async function extractAssistantTurnText(turn: Locator): Promise<string> {
       .replaceAll(/\n{3,}/g, "\n\n")
       .trim(),
   );
+}
+
+async function extractAssistantTurnUsingCopy(
+  page: Page,
+  turn: Locator,
+): Promise<string | null> {
+  const copy = turn.locator('[data-testid="copy-turn-action-button"]').first();
+  if (!(await copy.isVisible().catch(() => false))) {
+    return null;
+  }
+
+  try {
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await copy.click();
+    await page.waitForTimeout(150);
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    const normalized = copied.trim();
+    return normalized.length === 0 ? null : normalized;
+  } catch {
+    return null;
+  }
 }
 
 export async function captureSubmissionSnapshot(
@@ -226,9 +248,12 @@ export async function waitForFinalAssistantResponse(
             },
           };
         }
+        const copiedText = copyVisible
+          ? await extractAssistantTurnUsingCopy(page, target)
+          : null;
         return {
           ok: true,
-          response: { text, conversation },
+          response: { text: copiedText ?? text, conversation },
         };
       }
     }

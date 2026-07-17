@@ -8,6 +8,7 @@ import type {
 import type { BrowserManager } from "../manager.js";
 import {
   captureSubmissionSnapshot,
+  turnSignature,
   type SubmissionSnapshot,
 } from "./completion-detector.js";
 import { detectBlockingFailure } from "./error-detector.js";
@@ -35,6 +36,10 @@ export type MessageSubmissionResult =
       readonly snapshot: SubmissionSnapshot;
       readonly conversation: RemoteConversationReference | null;
     };
+
+function normalizeMessageText(value: string): string {
+  return value.replaceAll(/\s+/g, " ").trim();
+}
 
 function failure(
   page: Page,
@@ -148,11 +153,31 @@ export async function submitMessage(
       latestConversation = conversation;
       context.onConversationIdentified?.(conversation);
     }
+    const userTurnCount = await userTurns.count();
+    const assistantTurnCount = await assistantTurns.count();
     const confirmed =
-      (await userTurns.count()) > snapshot.userTurnCount ||
-      (await assistantTurns.count()) > snapshot.assistantTurnCount ||
+      userTurnCount > snapshot.userTurnCount ||
+      assistantTurnCount > snapshot.assistantTurnCount ||
       (conversation !== null && page.url() !== snapshot.url);
-    if (confirmed) {
+    const latestUserText =
+      userTurnCount === 0
+        ? ""
+        : normalizeMessageText(
+            await userTurns
+              .nth(userTurnCount - 1)
+              .innerText()
+              .catch(() => ""),
+          );
+    const latestAssistantSignature =
+      assistantTurnCount === 0
+        ? null
+        : await turnSignature(assistantTurns.nth(assistantTurnCount - 1));
+    const submittedMessageVisible =
+      latestUserText === normalizeMessageText(message);
+    const assistantTurnChanged =
+      latestAssistantSignature !== null &&
+      latestAssistantSignature !== snapshot.latestAssistantSignature;
+    if (confirmed || submittedMessageVisible || assistantTurnChanged) {
       if (conversation !== null) {
         latestConversation = conversation;
       }

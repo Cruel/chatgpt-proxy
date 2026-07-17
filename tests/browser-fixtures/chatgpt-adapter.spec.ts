@@ -301,6 +301,40 @@ test("recovers an ambiguous submission by inspection without resubmitting", asyn
   }
 });
 
+test("accepts a replaced assistant turn when the turn count does not change", async () => {
+  const resources = await createResources();
+  try {
+    const adapter = createAdapter(resources, "/project/example", {
+      submissionTimeoutMs: 300,
+      responseTimeoutMs: 1_000,
+    });
+    await adapter.start();
+
+    const message = "Return a same-count fixture response.";
+    const result = await adapter.sendMessage(
+      {
+        conversation: {
+          conversationId: "same-count-response",
+          url: `${resources.server.baseUrl}/c/same-count-response?scenario=same-count-response`,
+          title: null,
+        },
+        message,
+      },
+      operationContext(),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        text: `Final response to: ${message}`,
+        conversation: { conversationId: "same-count-response" },
+      },
+    });
+  } finally {
+    await disposeResources(resources);
+  }
+});
+
 test("recovers a completed response after the original wait times out", async () => {
   const resources = await createResources();
   try {

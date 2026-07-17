@@ -7,6 +7,8 @@ export default tseslint.config(
       "dist/**",
       "node_modules/**",
       "coverage/**",
+      ".playwright-profile/**",
+      ".artifacts/**",
       "eslint.config.js",
     ],
   },

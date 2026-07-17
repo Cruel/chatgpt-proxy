@@ -381,6 +381,13 @@ function interactiveChatHtml(
         if (scenario === 'recovery-after-timeout') {
           localStorage.setItem(recoveryStorageKey, message);
         }
+        if (scenario === 'same-count-response') {
+          composer.innerHTML = '';
+          const existing = turns.querySelector('[data-message-author-role="assistant"]');
+          existing.innerHTML = '<div class="markdown"><p>Final response to: ' + message.replaceAll('&', '&amp;').replaceAll('<', '&lt;') + '</p></div><button data-testid="copy-turn-action-button">Copy</button>';
+          existing.dataset.messageId = 'replacement-response';
+          return;
+        }
         addUserTurn(message);
         composer.innerHTML = '';
         if (!location.pathname.includes('/c/')) {

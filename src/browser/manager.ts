@@ -411,6 +411,10 @@ export class BrowserManager {
         handleSIGINT: false,
         handleSIGTERM: false,
         handleSIGHUP: false,
+        ignoreDefaultArgs: [
+          "--disable-extensions",
+          "--disable-component-extensions-with-background-pages",
+        ],
         args: ["--disable-session-crashed-bubble"],
         ...(this.channel === undefined ? {} : { channel: this.channel }),
       });
