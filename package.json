@@ -4,7 +4,7 @@
   "private": true,
   "description": "Local single-user HTTP proxy for a persistent Playwright-controlled ChatGPT session",
   "type": "module",
-  "packageManager": "pnpm@11.12.0",
+  "packageManager": "pnpm@11.11.0",
   "engines": {
     "node": ">=22"
   },
