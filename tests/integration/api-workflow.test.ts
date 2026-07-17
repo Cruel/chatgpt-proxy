@@ -222,10 +222,10 @@ describe("HTTP API workflow", () => {
       headers: authenticatedHeaders({ "idempotency-key": "chat-1" }),
       payload: { message: "Now focus on ownership.", wait: true },
     });
-    expect(retriedChatResponse.statusCode).toBe(200);
-    expect(
-      mutationAcceptedResponseSchema.parse(retriedChatResponse.json()).run.id,
-    ).toBe(chatted.run.id);
+    expect(retriedChatResponse.statusCode).toBe(404);
+    expect(apiErrorResponseSchema.parse(retriedChatResponse.json()).error.code).toBe(
+      "thread_not_found",
+    );
     expect(testRuntime.adapter.sendCalls).toHaveLength(1);
 
     const newChatResponse = await testRuntime.runtime.app.inject({
@@ -234,9 +234,9 @@ describe("HTTP API workflow", () => {
       headers: authenticatedHeaders({ "idempotency-key": "chat-after-delete" }),
       payload: { message: "This must not be sent.", wait: true },
     });
-    expect(newChatResponse.statusCode).toBe(409);
+    expect(newChatResponse.statusCode).toBe(404);
     expect(apiErrorResponseSchema.parse(newChatResponse.json()).error.code).toBe(
-      "thread_deleted",
+      "thread_not_found",
     );
     expect(testRuntime.adapter.sendCalls).toHaveLength(1);
 
@@ -246,10 +246,10 @@ describe("HTTP API workflow", () => {
       headers: authenticatedHeaders({ "idempotency-key": "delete-local-again" }),
       payload: { delete_remote: false, wait: true },
     });
-    expect(secondDeleteResponse.statusCode).toBe(200);
-    expect(
-      mutationAcceptedResponseSchema.parse(secondDeleteResponse.json()).thread.state,
-    ).toBe("deleted_local");
+    expect(secondDeleteResponse.statusCode).toBe(404);
+    expect(apiErrorResponseSchema.parse(secondDeleteResponse.json()).error.code).toBe(
+      "thread_not_found",
+    );
     expect(testRuntime.adapter.deleteCalls).toHaveLength(0);
 
     const defaultList = await testRuntime.runtime.app.inject({
@@ -267,6 +267,37 @@ describe("HTTP API workflow", () => {
     expect(listThreadsResponseSchema.parse(deletedList.json()).threads[0]?.state).toBe(
       "deleted_local",
     );
+
+    const recreatedResponse = await testRuntime.runtime.app.inject({
+      method: "POST",
+      url: "/v1/threads",
+      headers: authenticatedHeaders({ "idempotency-key": "recreate-thread" }),
+      payload: {
+        name: "architecture-review",
+        message: "Start a new conversation with this reused local name.",
+        wait: true,
+      },
+    });
+    expect(recreatedResponse.statusCode).toBe(201);
+    const recreated = mutationAcceptedResponseSchema.parse(
+      recreatedResponse.json(),
+    );
+    expect(recreated.thread.name).toBe("architecture-review");
+    expect(recreated.thread.state).toBe("idle");
+    expect(
+      testRuntime.persistence.threads.getByName("architecture-review")?.state,
+    ).toBe("idle");
+
+    const historyAfterRecreate = await testRuntime.runtime.app.inject({
+      method: "GET",
+      url: "/v1/threads?include_deleted=true",
+      headers: authenticatedHeaders(),
+    });
+    expect(
+      listThreadsResponseSchema.parse(historyAfterRecreate.json()).threads.map(
+        (thread) => thread.state,
+      ),
+    ).toEqual(["deleted_local", "idle"]);
   });
 
   it("returns immediately for no-wait mutations while the durable run continues", async () => {

@@ -58,7 +58,7 @@ describe("SQLite persistence", () => {
 
     const migration = opened.persistence.database
       .prepare<[], { version: number }>(`
-        SELECT version FROM schema_migrations
+        SELECT MAX(version) AS version FROM schema_migrations
       `)
       .get();
     expect(migration?.version).toBe(getLatestMigrationVersion());
@@ -71,7 +71,7 @@ describe("SQLite persistence", () => {
         SELECT COUNT(*) AS count FROM schema_migrations
       `)
       .get();
-    expect(migrationCount?.count).toBe(1);
+    expect(migrationCount?.count).toBe(getLatestMigrationVersion());
   });
 
   it("persists threads, runs, events, artifacts, and remote mappings", async () => {
@@ -144,6 +144,13 @@ describe("SQLite persistence", () => {
     const deleted = persistence.threads.setState(thread.id, "deleted_remote");
     expect(deleted.deletedAt).not.toBeNull();
     expect(deleted.remoteDeletedAt).not.toBeNull();
+    expect(persistence.threads.getByName("Persistence Test")).toBeNull();
+
+    const replacement = persistence.threads.create({
+      name: "Persistence Test",
+    });
+    expect(replacement.id).not.toBe(thread.id);
+    expect(persistence.threads.getById(thread.id)?.state).toBe("deleted_remote");
   });
 
   it("enforces explicit run-state transitions", async () => {

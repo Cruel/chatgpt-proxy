@@ -100,6 +100,15 @@ const MIGRATIONS: readonly Migration[] = [
         ON artifacts(run_id, created_at, id);
     `,
   },
+  {
+    version: 2,
+    name: "release deleted thread names",
+    sql: `
+      UPDATE threads
+      SET normalized_name = '__deleted__:' || id
+      WHERE state IN ('deleted_local', 'deleted_remote');
+    `,
+  },
 ];
 
 interface MigrationRow {

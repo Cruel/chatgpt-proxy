@@ -110,9 +110,9 @@ describe("remote deletion outcomes", () => {
     });
 
     const retried = await remoteDelete(testRuntime, "remote-success");
-    expect(retried.statusCode).toBe(200);
-    expect(mutationAcceptedResponseSchema.parse(retried.json()).run.id).toBe(
-      deleted.run.id,
+    expect(retried.statusCode).toBe(404);
+    expect(apiErrorResponseSchema.parse(retried.json()).error.code).toBe(
+      "thread_not_found",
     );
     expect(testRuntime.adapter.deleteCalls).toHaveLength(1);
   });

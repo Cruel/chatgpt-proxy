@@ -171,6 +171,10 @@ export class ThreadRepository {
       }>(`
         UPDATE threads
         SET state = @state,
+            normalized_name = CASE
+              WHEN @deletedAt IS NOT NULL THEN '__deleted__:' || id
+              ELSE normalized_name
+            END,
             updated_at = @updatedAt,
             deleted_at = COALESCE(@deletedAt, deleted_at),
             remote_deleted_at = COALESCE(@remoteDeletedAt, remote_deleted_at),
