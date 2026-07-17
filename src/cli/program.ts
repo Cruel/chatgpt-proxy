@@ -199,8 +199,17 @@ export function createCliProgram(executor: CliCommandExecutor): Command {
   program
     .command("run <run-id>")
     .description("show durable run status")
-    .action(async (runId: string, _options: unknown, command: Command) => {
-      await execute(executor, command, { kind: "run", runId });
+    .option("--wait", "wait until the run reaches a terminal state")
+    .action(async (
+      runId: string,
+      options: { readonly wait?: boolean },
+      command: Command,
+    ) => {
+      await execute(executor, command, {
+        kind: "run",
+        runId,
+        wait: options.wait ?? false,
+      });
     });
 
   program

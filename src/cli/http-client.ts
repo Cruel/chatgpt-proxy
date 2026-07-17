@@ -10,6 +10,15 @@ import type {
 } from "./contracts.js";
 
 const DEFAULT_TIMEOUT_MILLISECONDS = 31 * 60 * 1_000;
+const RUN_POLL_INTERVAL_MILLISECONDS = 1_000;
+const TERMINAL_RUN_STATES = new Set([
+  "needs_attention",
+  "succeeded",
+  "failed",
+  "timed_out",
+  "interrupted",
+  "cancelled",
+]);
 
 export interface CliHttpExecutorOptions {
   readonly fetchImplementation?: typeof fetch;
@@ -18,6 +27,7 @@ export interface CliHttpExecutorOptions {
   readonly readFileText?: (path: string) => Promise<string>;
   readonly readStdinText?: () => Promise<string>;
   readonly confirmRemoteDeletion?: (name: string) => Promise<boolean>;
+  readonly runPollIntervalMs?: number;
 }
 
 export class CliHttpError extends Error {
@@ -133,6 +143,31 @@ function stringValue(value: unknown, fallback = "unknown"): string {
     : fallback;
 }
 
+function isTimeoutError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === "TimeoutError") {
+    return true;
+  }
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  if (error.name === "TimeoutError") {
+    return true;
+  }
+  const cause = "cause" in error ? error.cause : undefined;
+  return cause === undefined ? false : isTimeoutError(cause);
+}
+
+function runIsTerminal(payload: unknown): boolean {
+  const root = asRecord(payload);
+  const run = asRecord(root?.run);
+  return typeof run?.state === "string" && TERMINAL_RUN_STATES.has(run.state);
+}
+
+function runIdFromPayload(payload: unknown): string | null {
+  const run = asRecord(asRecord(payload)?.run);
+  return typeof run?.id === "string" ? run.id : null;
+}
+
 async function readStream(stream: NodeJS.ReadStream): Promise<string> {
   stream.setEncoding("utf8");
   let text = "";
@@ -149,6 +184,7 @@ export class HttpCliExecutor implements CliCommandExecutor {
   private readonly readFileText: (path: string) => Promise<string>;
   private readonly readStdinText: () => Promise<string>;
   private readonly confirmRemoteDeletion: (name: string) => Promise<boolean>;
+  private readonly runPollIntervalMs: number;
 
   public constructor(options: CliHttpExecutorOptions = {}) {
     this.fetchImplementation = options.fetchImplementation ?? fetch;
@@ -158,6 +194,8 @@ export class HttpCliExecutor implements CliCommandExecutor {
     this.readStdinText = options.readStdinText ?? (() => readStream(this.stdin));
     this.confirmRemoteDeletion =
       options.confirmRemoteDeletion ?? ((name) => this.confirmInteractively(name));
+    this.runPollIntervalMs =
+      options.runPollIntervalMs ?? RUN_POLL_INTERVAL_MILLISECONDS;
   }
 
   public async execute(invocation: CliInvocation): Promise<void> {
@@ -181,10 +219,174 @@ export class HttpCliExecutor implements CliCommandExecutor {
       headers.set("idempotency-key", command.idempotencyKey ?? randomUUID());
     }
 
+    const timeoutMs = parseDuration(invocation.options.timeout);
+    const deadline = Date.now() + timeoutMs;
+    let activeRunId: string | null = command.kind === "run" ? command.runId : null;
+    try {
+      let payload = await this.performRequest(
+        invocation,
+        command,
+        headers,
+        body,
+        Math.max(1, deadline - Date.now()),
+      );
+
+      let renderedCommand = command;
+      if (
+        (command.kind === "new" || command.kind === "chat") &&
+        command.wait
+      ) {
+        activeRunId = runIdFromPayload(payload);
+        if (activeRunId === null) {
+          throw new CliHttpError(
+            "Server accepted the task without returning a run ID",
+            null,
+            "missing_run_id",
+            payload,
+            invocation.options.json,
+          );
+        }
+        renderedCommand = { kind: "run", runId: activeRunId, wait: true };
+      }
+
+      while (
+        renderedCommand.kind === "run" &&
+        renderedCommand.wait &&
+        !runIsTerminal(payload)
+      ) {
+        const remainingMs = deadline - Date.now();
+        if (remainingMs <= 0) {
+          throw new CliHttpError(
+            `Timed out after ${timeoutMs} ms while waiting for run '${renderedCommand.runId}'`,
+            null,
+            "client_timeout",
+            null,
+            invocation.options.json,
+          );
+        }
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.min(this.runPollIntervalMs, remainingMs)),
+        );
+        payload = await this.performRequest(
+          invocation,
+          renderedCommand,
+          this.statusHeaders(invocation),
+          undefined,
+          Math.max(1, deadline - Date.now()),
+        );
+      }
+
+      this.render(renderedCommand, payload, invocation.options.json);
+    } catch (error) {
+      if (!(error instanceof CliHttpError) || error.code !== "client_timeout") {
+        throw error;
+      }
+      throw await this.enrichTimeoutError(
+        invocation,
+        command,
+        headers,
+        timeoutMs,
+        activeRunId,
+      );
+    }
+  }
+
+  private statusHeaders(invocation: CliInvocation): Headers {
+    const headers = new Headers({ accept: "application/json" });
+    if (invocation.options.apiToken !== undefined) {
+      headers.set("authorization", `Bearer ${invocation.options.apiToken}`);
+    }
+    return headers;
+  }
+
+  private async enrichTimeoutError(
+    invocation: CliInvocation,
+    command: CliCommand,
+    headers: Headers,
+    timeoutMs: number,
+    knownRunId: string | null,
+  ): Promise<CliHttpError> {
+    const runId =
+      knownRunId !== null
+        ? knownRunId
+        : await this.recoverPendingRunId(invocation, command, headers);
+    const baseMessage =
+      `Request timed out after ${timeoutMs} ms; the server may still be processing the run`;
+    if (runId === null) {
+      return new CliHttpError(
+        `${baseMessage}. Check the thread with 'pnpm cli info <thread-name>' for more information`,
+        null,
+        "client_timeout",
+        null,
+        invocation.options.json,
+      );
+    }
+
+    const recoveryCommand = `pnpm cli run ${runId} --wait`;
+    const message =
+      `${baseMessage} '${runId}'. Check that run for more information with: ${recoveryCommand}`;
+    return new CliHttpError(
+      message,
+      null,
+      "client_timeout",
+      {
+        error: {
+          code: "client_timeout",
+          message,
+          details: { runId, recoveryCommand },
+        },
+      },
+      invocation.options.json,
+    );
+  }
+
+  private async recoverPendingRunId(
+    invocation: CliInvocation,
+    command: CliCommand,
+    headers: Headers,
+  ): Promise<string | null> {
+    if (
+      command.kind !== "new" &&
+      command.kind !== "chat" &&
+      command.kind !== "delete"
+    ) {
+      return null;
+    }
+
+    try {
+      const response = await this.fetchImplementation(
+        url(
+          invocation.options.serverUrl,
+          `/v1/threads/${encodeURIComponent(command.name)}`,
+        ),
+        {
+          method: "GET",
+          headers,
+          signal: AbortSignal.timeout(5_000),
+        },
+      );
+      if (!response.ok) {
+        return null;
+      }
+      const payload = (await response.json()) as unknown;
+      const pendingRun = asRecord(asRecord(payload)?.pendingRun);
+      return typeof pendingRun?.id === "string" ? pendingRun.id : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async performRequest(
+    invocation: CliInvocation,
+    command: CliCommand,
+    headers: Headers,
+    body: unknown,
+    timeoutMs: number,
+  ): Promise<unknown> {
     const requestOptions: RequestInit = {
       method: method(command),
       headers,
-      signal: AbortSignal.timeout(parseDuration(invocation.options.timeout)),
+      signal: AbortSignal.timeout(timeoutMs),
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     };
     let response: Response;
@@ -194,15 +396,25 @@ export class HttpCliExecutor implements CliCommandExecutor {
         requestOptions,
       );
     } catch (error) {
+      if (isTimeoutError(error)) {
+        throw new CliHttpError(
+          `Request timed out after ${timeoutMs} ms; the server may still be processing the run`,
+          null,
+          "client_timeout",
+          null,
+          invocation.options.json,
+        );
+      }
       const message = error instanceof Error ? error.message : String(error);
       throw new CliHttpError(
-        `Unable to reach the proxy: ${message}`,
+        `Unable to reach the server: ${message}`,
         null,
-        null,
+        "connection_failed",
         null,
         invocation.options.json,
       );
     }
+
     const responseText = await response.text();
     let payload: unknown = null;
     if (responseText.length > 0) {
@@ -235,8 +447,7 @@ export class HttpCliExecutor implements CliCommandExecutor {
         invocation.options.json,
       );
     }
-
-    this.render(command, payload, invocation.options.json);
+    return payload;
   }
 
   private async requestBody(command: CliCommand): Promise<unknown> {
@@ -246,13 +457,13 @@ export class HttpCliExecutor implements CliCommandExecutor {
           name: command.name,
           message: await this.resolvePrompt(command.input),
           ...(command.thinking === undefined ? {} : { thinking: command.thinking }),
-          wait: command.wait,
+          wait: false,
         };
       case "chat":
         return {
           message: await this.resolvePrompt(command.input),
           ...(command.thinking === undefined ? {} : { thinking: command.thinking }),
-          wait: command.wait,
+          wait: false,
         };
       case "delete":
         return { delete_remote: command.remote, wait: command.wait };
@@ -340,6 +551,12 @@ export class HttpCliExecutor implements CliCommandExecutor {
       this.stdout.write(
         `${stringValue(thread.name, command.name)}: ${stringValue(thread.state)}\n`,
       );
+      const pendingRun = asRecord(root?.pendingRun);
+      if (pendingRun !== null) {
+        this.stdout.write(
+          `Pending run ${stringValue(pendingRun.id)}: ${stringValue(pendingRun.state)} (${stringValue(pendingRun.phase)})\n`,
+        );
+      }
     } else if (run === null) {
       this.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
     }

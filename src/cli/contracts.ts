@@ -34,7 +34,11 @@ export type CliCommand =
       readonly idempotencyKey: string | undefined;
     }
   | { readonly kind: "info"; readonly name: string }
-  | { readonly kind: "run"; readonly runId: string }
+  | {
+      readonly kind: "run";
+      readonly runId: string;
+      readonly wait: boolean;
+    }
   | {
       readonly kind: "delete";
       readonly name: string;

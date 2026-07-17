@@ -9,6 +9,7 @@ project_url = "https://chatgpt.com/..."
 profile_dir = "./.playwright-profile"
 headless = false
 thinking_level = "medium"
+deduplicate_last_message = true
 delete_remote_thread = false
 
 [browser]

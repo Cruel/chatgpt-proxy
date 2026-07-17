@@ -126,6 +126,17 @@ pnpm cli info example
 pnpm cli delete example
 ```
 
+By default, an exact repeat of the most recently submitted message in a thread
+returns the existing durable run instead of creating another submission. This
+protects callers that retry after a timeout or lost connection. Set
+`chatgpt.deduplicate_last_message = false` to permit consecutive identical
+messages intentionally.
+
+`new` and `chat` submit the durable run without holding one long HTTP request
+open, then poll the returned run ID internally until it completes. They still
+wait and print the final response by default. Pass `--no-wait` to return
+immediately with the run ID, and use `pnpm cli run <run-id> --wait` to reattach.
+
 For a strictly local tokenless setup, disable authentication explicitly:
 
 ```toml

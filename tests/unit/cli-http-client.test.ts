@@ -142,11 +142,86 @@ describe("CLI HTTP client", () => {
     expect(JSON.parse(capturedOptions?.body as string)).toEqual({
       name: "review",
       message: "Review this.",
-      wait: true,
+      wait: false,
     });
     expect(JSON.parse(output)).toMatchObject({
       run: { state: "succeeded" },
     });
+  });
+
+  it("submits new tasks asynchronously and polls the returned run by default", async () => {
+    const urls: string[] = [];
+    const responses = [
+      {
+        run: {
+          id: "00000000-0000-4000-8000-000000000111",
+          state: "queued",
+          finalResponse: null,
+        },
+        thread: { name: "review", state: "running" },
+      },
+      {
+        run: {
+          id: "00000000-0000-4000-8000-000000000111",
+          state: "running",
+          finalResponse: null,
+        },
+      },
+      {
+        run: {
+          id: "00000000-0000-4000-8000-000000000111",
+          state: "succeeded",
+          finalResponse: "Finished",
+        },
+      },
+    ];
+    let calls = 0;
+    let output = "";
+    const executor = new HttpCliExecutor({
+      runPollIntervalMs: 1,
+      stdout: {
+        write(text) {
+          output += String(text);
+          return true;
+        },
+      },
+      fetchImplementation: (input) => {
+        urls.push(
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url,
+        );
+        const payload = responses[Math.min(calls, responses.length - 1)];
+        calls += 1;
+        return Promise.resolve(new Response(JSON.stringify(payload), { status: 200 }));
+      },
+    });
+
+    await executor.execute({
+      command: {
+        kind: "new",
+        name: "review",
+        input: { kind: "message", value: "Do the work." },
+        wait: true,
+        idempotencyKey: undefined,
+      },
+      options: {
+        serverUrl: "http://127.0.0.1:7421",
+        apiToken: undefined,
+        json: false,
+        timeout: "1s",
+      },
+    });
+
+    expect(urls).toEqual([
+      "http://127.0.0.1:7421/v1/threads",
+      "http://127.0.0.1:7421/v1/runs/00000000-0000-4000-8000-000000000111",
+      "http://127.0.0.1:7421/v1/runs/00000000-0000-4000-8000-000000000111",
+    ]);
+    expect(output).toContain("Run 00000000-0000-4000-8000-000000000111: succeeded");
+    expect(output).toContain("Finished");
   });
 
   it("can call a tokenless local server without an authorization header", async () => {
@@ -265,6 +340,121 @@ describe("CLI HTTP client", () => {
 
     expect(confirmRemoteDeletion).not.toHaveBeenCalled();
     expect(capturedBody).toEqual({ delete_remote: true, wait: true });
+  });
+
+  it("waits on an existing run until its stored result is terminal", async () => {
+    const responses = [
+      { run: { id: "run-1", state: "submitting", finalResponse: null } },
+      { run: { id: "run-1", state: "running", finalResponse: null } },
+      { run: { id: "run-1", state: "succeeded", finalResponse: "Finished" } },
+    ];
+    let calls = 0;
+    let output = "";
+    const executor = new HttpCliExecutor({
+      runPollIntervalMs: 1,
+      stdout: {
+        write(text) {
+          output += String(text);
+          return true;
+        },
+      },
+      fetchImplementation: () => {
+        const payload = responses[Math.min(calls, responses.length - 1)];
+        calls += 1;
+        return Promise.resolve(new Response(JSON.stringify(payload), { status: 200 }));
+      },
+    });
+
+    await executor.execute({
+      command: { kind: "run", runId: "run-1", wait: true },
+      options: {
+        serverUrl: "http://127.0.0.1:7421",
+        apiToken: undefined,
+        json: false,
+        timeout: "1s",
+      },
+    });
+
+    expect(calls).toBe(3);
+    expect(output).toContain("Run run-1: succeeded");
+    expect(output).toContain("Finished");
+  });
+
+  it("reports client timeouts separately from connection failures", async () => {
+    const timeout = new DOMException("The operation was aborted", "TimeoutError");
+    const executor = new HttpCliExecutor({
+      fetchImplementation: () => Promise.reject(new TypeError("fetch failed", { cause: timeout })),
+    });
+
+    const error = await executor.execute({
+        command: { kind: "run", runId: "run-1", wait: false },
+        options: {
+          serverUrl: "http://127.0.0.1:7421",
+          apiToken: undefined,
+          json: false,
+          timeout: "5s",
+        },
+      }).catch((value: unknown) => value);
+
+    expect(error).toBeInstanceOf(CliHttpError);
+    if (!(error instanceof CliHttpError)) {
+      throw new Error("Expected CliHttpError");
+    }
+    expect(error.code).toBe("client_timeout");
+    expect(error.message).toContain("Request timed out");
+    expect(error.message).toContain("pnpm cli run run-1 --wait");
+  });
+
+  it("recovers a pending run id after a mutation request times out", async () => {
+    const timeout = new DOMException("The operation was aborted", "TimeoutError");
+    let calls = 0;
+    const executor = new HttpCliExecutor({
+      fetchImplementation: () => {
+        calls += 1;
+        if (calls === 1) {
+          return Promise.reject(new TypeError("fetch failed", { cause: timeout }));
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              pendingRun: {
+                id: "5a486fc9-480a-4ccd-9017-10840e71f0ef",
+                state: "submitting",
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      },
+    });
+
+    const error = await executor
+      .execute({
+        command: {
+          kind: "chat",
+          name: "review",
+          input: { kind: "message", value: "Continue." },
+          wait: true,
+          idempotencyKey: undefined,
+        },
+        options: {
+          serverUrl: "http://127.0.0.1:7421",
+          apiToken: undefined,
+          json: false,
+          timeout: "5s",
+        },
+      })
+      .catch((value: unknown) => value);
+
+    expect(error).toBeInstanceOf(CliHttpError);
+    if (!(error instanceof CliHttpError)) {
+      throw new Error("Expected CliHttpError");
+    }
+    expect(calls).toBe(2);
+    expect(error.message).toContain("5a486fc9-480a-4ccd-9017-10840e71f0ef");
+    expect(error.message).toContain(
+      "pnpm cli run 5a486fc9-480a-4ccd-9017-10840e71f0ef --wait",
+    );
   });
 
   it("preserves structured server errors for JSON output", () => {

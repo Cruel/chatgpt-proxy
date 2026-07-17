@@ -101,6 +101,7 @@ export function createConfigSchema(
           thinking_level: z
             .enum(["instant", "medium", "high"])
             .default("medium"),
+          deduplicate_last_message: z.boolean().default(true),
           delete_remote_thread: z.boolean().default(false),
         })
         .transform((value) => ({
@@ -108,6 +109,7 @@ export function createConfigSchema(
           profileDirectory: value.profile_dir,
           headless: value.headless,
           thinkingLevel: value.thinking_level,
+          deduplicateLastMessage: value.deduplicate_last_message,
           deleteRemoteThread: value.delete_remote_thread,
         })),
       browser: z

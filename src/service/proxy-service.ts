@@ -194,6 +194,20 @@ export class ProxyService {
         return this.finishMutation(thread.id, retried.run, input.wait);
       }
     }
+    if (this.config.chatGpt.deduplicateLastMessage) {
+      const lastMessage = this.persistence.runs
+        .listByThread(thread.id)
+        .filter(
+          (run) =>
+            (run.operationType === "create_thread" ||
+              run.operationType === "send_message") &&
+            run.inputText !== null,
+        )
+        .at(-1);
+      if (lastMessage?.inputText === input.message) {
+        return this.finishMutation(thread.id, lastMessage, input.wait);
+      }
+    }
     this.assertMutableThread(thread);
     const result = this.enqueueSafely({
       threadId: thread.id,
