@@ -18,6 +18,7 @@ import {
   browserStatusResponseSchema,
   createThreadRequestSchema,
   deleteThreadRequestSchema,
+  doctorResponseSchema,
   healthResponseSchema,
   idempotencyHeadersSchema,
   listThreadsQuerySchema,
@@ -134,7 +135,7 @@ export function createApiServer(
 
   app.addHook("onRequest", (request) => {
     const path = request.url.split("?", 1)[0];
-    if (path !== "/v1/health") {
+    if (path !== "/v1/health" && options.config.server.requireApiToken) {
       authorize(request, options.config.server.apiToken);
     }
     return Promise.resolve();
@@ -148,6 +149,10 @@ export function createApiServer(
 
   app.get("/v1/browser/status", async () =>
     browserStatusResponseSchema.parse(await options.service.getBrowserStatus()),
+  );
+
+  app.get("/v1/doctor", async () =>
+    doctorResponseSchema.parse(await options.service.getDoctorReport()),
   );
 
   app.get("/v1/threads", (request) => {

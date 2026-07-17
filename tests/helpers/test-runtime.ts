@@ -16,11 +16,13 @@ export interface TestRuntime {
 
 export function createTestConfig(
   remoteDeletionEnabled = false,
+  requireApiToken = true,
 ): AppConfig {
   return parseConfigText(
     `
 [server]
-api_token = "${TEST_API_TOKEN}"
+require_api_token = ${requireApiToken ? "true" : "false"}
+api_token = "${requireApiToken ? TEST_API_TOKEN : ""}"
 
 [chatgpt]
 project_url = "https://chatgpt.com/g/g-p-example/project"
@@ -32,8 +34,9 @@ delete_remote_thread = ${remoteDeletionEnabled ? "true" : "false"}
 
 export function createTestRuntime(
   remoteDeletionEnabled = false,
+  requireApiToken = true,
 ): TestRuntime {
-  const config = createTestConfig(remoteDeletionEnabled);
+  const config = createTestConfig(remoteDeletionEnabled, requireApiToken);
   const adapter = new FakeBrowserAdapter();
   const persistence = openPersistence(":memory:");
   const runtime = createProxyRuntime({ config, adapter, persistence });

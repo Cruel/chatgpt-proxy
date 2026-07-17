@@ -22,6 +22,63 @@ function invocation(
 }
 
 describe("CLI HTTP client", () => {
+  it("renders doctor checks with actionable remediation", async () => {
+    let capturedUrl = "";
+    let output = "";
+    const executor = new HttpCliExecutor({
+      fetchImplementation: (input) => {
+        capturedUrl =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: "warning",
+              version: "0.1.0",
+              observedAt: "2026-07-16T18:00:00.000Z",
+              checks: [
+                {
+                  id: "browser",
+                  status: "warning",
+                  summary: "ChatGPT login is required",
+                  detail: "Login expired",
+                  remediation: "Complete login in the headed browser window.",
+                },
+              ],
+              browser: {},
+              queue: {},
+            }),
+            { status: 200 },
+          ),
+        );
+      },
+      stdout: {
+        write(text) {
+          output += String(text);
+          return true;
+        },
+      },
+    });
+
+    await executor.execute({
+      command: { kind: "doctor" },
+      options: {
+        serverUrl: "http://127.0.0.1:7421",
+        apiToken: "token",
+        json: false,
+        timeout: "5s",
+      },
+    });
+
+    expect(capturedUrl).toBe("http://127.0.0.1:7421/v1/doctor");
+    expect(output).toContain("Operational status: warning");
+    expect(output).toContain("[WARNING] ChatGPT login is required");
+    expect(output).toContain("Action: Complete login");
+  });
+
   it("parses supported timeout units", () => {
     expect(parseDuration("250ms")).toBe(250);
     expect(parseDuration("2s")).toBe(2_000);
@@ -90,6 +147,34 @@ describe("CLI HTTP client", () => {
     expect(JSON.parse(output)).toMatchObject({
       run: { state: "succeeded" },
     });
+  });
+
+  it("can call a tokenless local server without an authorization header", async () => {
+    let capturedHeaders: Headers | undefined;
+    const executor = new HttpCliExecutor({
+      stdout: { write: () => true },
+      fetchImplementation: (_input, init) => {
+        capturedHeaders = new Headers(init?.headers);
+        return Promise.resolve(
+          new Response(JSON.stringify({ threads: [] }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      },
+    });
+
+    await executor.execute({
+      command: { kind: "threads", includeDeleted: false },
+      options: {
+        serverUrl: "http://127.0.0.1:7421",
+        apiToken: undefined,
+        json: true,
+        timeout: "5s",
+      },
+    });
+
+    expect(capturedHeaders?.has("authorization")).toBe(false);
   });
 
   it("reads file input and preserves an explicit idempotency key", async () => {

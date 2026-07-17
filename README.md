@@ -3,7 +3,7 @@
 A local, single-user service that will expose a small HTTP API and CLI over a
 persistent Playwright-controlled ChatGPT browser session.
 
-The repository currently contains the Phase 1 through Phase 7 foundations:
+The repository currently contains the Phase 1 through Phase 8 implementation:
 validated TOML configuration, domain contracts, versioned SQLite persistence,
 durable scheduling, bounded cross-thread concurrency, same-thread serialization,
 restart reconciliation, bearer-authenticated Fastify endpoints, a complete HTTP
@@ -15,7 +15,9 @@ tool-progress filtering, final-response extraction, selector and error
 registries, non-duplicating submission/response recovery, persisted diagnostic
 artifacts, retention pruning, a sanitized fixture-corpus workflow, and
 conservative real ChatGPT conversation deletion with confirmation validation,
-absence verification, ambiguity preservation, and atomic local tombstoning.
+absence verification, ambiguity preservation, atomic local tombstoning,
+operational diagnostics, graceful signal handling, explicit queue-draining
+behavior, and a guided release-acceptance workflow.
 
 ## Development
 
@@ -37,7 +39,7 @@ Authenticate the dedicated profile once in a normal browser session that is
 not controlled by Playwright:
 
 ```bash
-pnpm browser:profile-login
+pnpm auth
 ```
 
 Complete Google and ChatGPT login, verify the configured project opens, then
@@ -76,7 +78,7 @@ pnpm server:fake
 Run the real persistent-browser service with:
 
 ```bash
-pnpm server:playwright
+pnpm server
 ```
 
 The first run opens headed Playwright Chromium using `profile_dir`. Complete
@@ -109,12 +111,13 @@ The importer strips scripts and common account, token, path, project,
 conversation, and URL-query identifiers. Review the generated file under
 `tests/fixtures/chatgpt/` before committing it.
 
-In another terminal, pass the configured token to the CLI:
+By default, pass the configured token to the CLI:
 
 ```bash
 export CHATGPT_PROXY_TOKEN=replace-me
 
 pnpm cli health
+pnpm cli doctor
 pnpm cli threads
 pnpm cli new example --message "Review this design."
 pnpm cli chat example --message "Now focus on failure handling."
@@ -122,12 +125,46 @@ pnpm cli info example
 pnpm cli delete example
 ```
 
+For a strictly local tokenless setup, disable authentication explicitly:
+
+```toml
+[server]
+listen_host = "127.0.0.1"
+require_api_token = false
+api_token = ""
+```
+
+The CLI then works without `CHATGPT_PROXY_TOKEN`. Token authentication remains
+enabled by default, and an empty token is rejected unless
+`require_api_token = false`. The listener is restricted to loopback addresses in
+either mode.
+
 `cgpt delete <name>` only tombstones local state. Remote deletion additionally
 requires `--remote`, server-side permission, and interactive confirmation or
 `--yes`. The browser adapter activates Delete only after it verifies the loaded
 conversation ID, the action menu, and a recognizable deletion confirmation. It
 then verifies remote absence; an inconclusive result preserves the local mapping
 in `needs_attention` rather than clicking Delete again.
+
+`cgpt doctor` reports SQLite integrity, filesystem permissions, browser/login
+state, queue state, authentication mode, placeholder credentials, and
+deletion-policy warnings. It prints remediation guidance for every non-healthy
+check.
+
+## Shutdown and recovery
+
+`SIGINT` and `SIGTERM` initiate graceful shutdown. The server stops HTTP intake,
+allows already active work to finish, closes the browser cleanly, and leaves
+undispatched durable runs queued in SQLite for the next startup. A second signal
+forces process termination and should be reserved for a genuinely stuck
+shutdown.
+
+When ChatGPT login expires or browser verification is required, queue dispatch
+pauses without resubmitting prompts. Complete the interaction in the headed
+browser and run `pnpm cli doctor` or `pnpm cli browser-status` to verify recovery.
+
+Operational backup, restore, selector-failure, and long-running service guidance
+is documented in `docs/OPERATIONS.md`.
 
 ## Test boundaries
 
@@ -158,3 +195,15 @@ pnpm test:live:delete
 
 That suite creates a uniquely marked conversation and deletes only the exact
 conversation reference returned by its own create operation.
+
+The guided manual acceptance workflow is separate from the normal live suite:
+
+```bash
+CHATGPT_PROXY_LIVE_TESTS=1 \
+CHATGPT_PROXY_CONFIG=/absolute/path/to/config.toml \
+pnpm acceptance:live
+```
+
+It exercises browser/project readiness, create, follow-up chat, parallel work,
+local-only deletion, optional separately gated remote deletion, and artifact
+inspection. See `docs/MANUAL_ACCEPTANCE.md` before running it.

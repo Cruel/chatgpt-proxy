@@ -73,19 +73,43 @@ export function createProxyRuntime(
       : { config: options.config, service, logger: options.logger },
   );
 
+  let closePromise: Promise<void> | null = null;
+
   return {
     app,
     persistence,
     queue,
     service,
     adapter: options.adapter,
-    async close() {
-      await app.close();
-      await queue.close();
-      await options.adapter.close?.();
-      if (ownsPersistence) {
-        persistence.close();
+    close() {
+      if (closePromise !== null) {
+        return closePromise;
       }
+      closePromise = (async () => {
+        const errors: unknown[] = [];
+        for (const close of [
+          () => app.close(),
+          () => queue.close(),
+          () => options.adapter.close?.() ?? Promise.resolve(),
+        ]) {
+          try {
+            await close();
+          } catch (error) {
+            errors.push(error);
+          }
+        }
+        if (ownsPersistence) {
+          try {
+            persistence.close();
+          } catch (error) {
+            errors.push(error);
+          }
+        }
+        if (errors.length > 0) {
+          throw new AggregateError(errors, "Proxy runtime shutdown failed");
+        }
+      })();
+      return closePromise;
     },
   };
 }

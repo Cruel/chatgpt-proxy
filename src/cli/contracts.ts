@@ -12,6 +12,7 @@ export type PromptInput =
 
 export type CliCommand =
   | { readonly kind: "health" }
+  | { readonly kind: "doctor" }
   | { readonly kind: "browser-status" }
   | { readonly kind: "threads"; readonly includeDeleted: boolean }
   | {

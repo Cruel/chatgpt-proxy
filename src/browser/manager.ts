@@ -3,7 +3,9 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  rename,
   rm,
+  writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -75,6 +77,49 @@ const NOOP_LOGGER: Pick<Logger, "debug" | "error" | "info" | "warn"> = {
 };
 
 const DEFAULT_RECOVERY_DELAYS_MS = [0, 250, 1_000] as const;
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function markChromiumProfileExitedCleanly(
+  profileDirectory: string,
+): Promise<void> {
+  const localStatePath = join(profileDirectory, "Local State");
+  let profileName = "Default";
+  try {
+    const localState = JSON.parse(await readFile(localStatePath, "utf8")) as unknown;
+    if (isJsonObject(localState) && isJsonObject(localState.profile)) {
+      const lastUsed = localState.profile.last_used;
+      if (typeof lastUsed === "string" && lastUsed.length > 0) {
+        profileName = lastUsed;
+      }
+    }
+  } catch {
+    // Chromium may omit Local State for a newly created single-profile directory.
+  }
+
+  const preferencesPath = join(profileDirectory, profileName, "Preferences");
+  const preferences = JSON.parse(
+    await readFile(preferencesPath, "utf8"),
+  ) as unknown;
+  if (!isJsonObject(preferences)) {
+    throw new Error("Chromium Preferences root is not an object");
+  }
+  const profile = isJsonObject(preferences.profile)
+    ? preferences.profile
+    : {};
+  profile.exit_type = "Normal";
+  profile.exited_cleanly = true;
+  preferences.profile = profile;
+
+  const temporaryPath = `${preferencesPath}.chatgpt-proxy.tmp`;
+  await writeFile(temporaryPath, JSON.stringify(preferences), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  await rename(temporaryPath, preferencesPath);
+}
 
 function defaultLauncher(
   profileDirectory: string,
@@ -363,6 +408,10 @@ export class BrowserManager {
       context = await this.launchPersistentContext(this.profileDirectory, {
         headless: this.headless,
         viewport: null,
+        handleSIGINT: false,
+        handleSIGTERM: false,
+        handleSIGHUP: false,
+        args: ["--disable-session-crashed-bubble"],
         ...(this.channel === undefined ? {} : { channel: this.channel }),
       });
     } catch (error) {
@@ -529,9 +578,25 @@ export class BrowserManager {
       });
     }
     this.tracingStarted = false;
-    await context?.close().catch((error: unknown) => {
-      this.logger.warn({ error }, "failed to close browser context cleanly");
-    });
+    let contextClosedCleanly = context === null;
+    if (context !== null) {
+      try {
+        await context.close();
+        contextClosedCleanly = true;
+      } catch (error) {
+        this.logger.warn({ error }, "failed to close browser context cleanly");
+      }
+    }
+    if (expected && contextClosedCleanly) {
+      await markChromiumProfileExitedCleanly(this.profileDirectory).catch(
+        (error: unknown) => {
+          this.logger.warn(
+            { error },
+            "failed to normalize Chromium clean-exit profile state",
+          );
+        },
+      );
+    }
   }
 
   private handleContextClosed(generation: number): void {

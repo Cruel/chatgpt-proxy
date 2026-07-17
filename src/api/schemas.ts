@@ -28,6 +28,30 @@ export const browserStatusResponseSchema = z.strictObject({
   observedAt: timestampSchema,
 });
 
+export const operationalCheckSchema = z.strictObject({
+  id: z.string().min(1),
+  status: z.enum(["ok", "warning", "error"]),
+  summary: z.string().min(1),
+  detail: z.string().nullable(),
+  remediation: z.string().nullable(),
+});
+
+export const queueStatusSchema = z.strictObject({
+  state: z.enum(["not_started", "running", "stopping", "stopped"]),
+  activeRunCount: z.number().int().nonnegative(),
+  queuedRunCount: z.number().int().nonnegative(),
+  dispatchEnabled: z.boolean(),
+});
+
+export const doctorResponseSchema = z.strictObject({
+  status: z.enum(["ok", "warning", "error"]),
+  version: z.string().min(1),
+  observedAt: timestampSchema,
+  checks: z.array(operationalCheckSchema),
+  browser: browserStatusResponseSchema,
+  queue: queueStatusSchema,
+});
+
 export const listThreadsQuerySchema = z.strictObject({
   include_deleted: z
     .union([z.boolean(), z.enum(["true", "false"])])
@@ -153,3 +177,4 @@ export type DeleteThreadRequest = z.infer<typeof deleteThreadRequestSchema>;
 export type ThreadSummary = z.infer<typeof threadSummarySchema>;
 export type RunSummary = z.infer<typeof runSummarySchema>;
 export type ApiErrorResponse = z.infer<typeof apiErrorResponseSchema>;
+export type DoctorResponse = z.infer<typeof doctorResponseSchema>;

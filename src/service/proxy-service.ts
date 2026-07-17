@@ -10,6 +10,7 @@ import type { RunRecord, ThreadRecord } from "../domain/models.js";
 import { decideDeletionPolicy } from "../domain/deletion-policy.js";
 import type { DurableRunQueue } from "../scheduler/durable-run-queue.js";
 import { QueueFullError } from "../scheduler/errors.js";
+import { runOperationalDiagnostics } from "../operations/index.js";
 import {
   presentDeletionStatus,
   presentRun,
@@ -67,6 +68,15 @@ export class ProxyService {
       ...status,
       queuedRunCount: this.persistence.runs.countQueued(),
     };
+  }
+
+  public getDoctorReport() {
+    return runOperationalDiagnostics({
+      config: this.config,
+      persistence: this.persistence,
+      queue: this.queue,
+      adapter: this.adapter,
+    });
   }
 
   public listThreads(includeDeleted: boolean) {

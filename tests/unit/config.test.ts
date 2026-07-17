@@ -25,6 +25,7 @@ describe("configuration", () => {
     expect(config.server).toEqual({
       listenHost: "127.0.0.1",
       listenPort: 7421,
+      requireApiToken: true,
       apiToken: "test-token",
     });
     expect(config.chatGpt.deleteRemoteThread).toBe(false);
@@ -73,6 +74,44 @@ delete_remote_thread = true
     );
 
     expect(enabled.chatGpt.deleteRemoteThread).toBe(true);
+  });
+
+  it("allows explicit tokenless loopback operation", () => {
+    const config = parseConfigText(
+      `
+[server]
+require_api_token = false
+api_token = ""
+
+[chatgpt]
+project_url = "https://chatgpt.com/g/g-p-example/project"
+`,
+      {
+        homeDirectory: HOME_DIRECTORY,
+        baseDirectory: BASE_DIRECTORY,
+      },
+    );
+
+    expect(config.server.requireApiToken).toBe(false);
+    expect(config.server.apiToken).toBe("");
+  });
+
+  it("rejects an empty token while authentication is required", () => {
+    expect(() =>
+      parseConfigText(
+        `
+[server]
+api_token = ""
+
+[chatgpt]
+project_url = "https://chatgpt.com/g/g-p-example/project"
+`,
+        {
+          homeDirectory: HOME_DIRECTORY,
+          baseDirectory: BASE_DIRECTORY,
+        },
+      ),
+    ).toThrow(/API token is required/);
   });
 
   it("expands home paths before requiring absolute paths", () => {

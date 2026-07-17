@@ -74,6 +74,13 @@ export interface DurableRunQueueOptions {
   readonly logger?: Pick<Logger, "debug" | "error" | "info" | "warn">;
 }
 
+export interface DurableRunQueueSnapshot {
+  readonly state: "not_started" | "running" | "stopping" | "stopped";
+  readonly activeRunCount: number;
+  readonly queuedRunCount: number;
+  readonly dispatchEnabled: boolean;
+}
+
 const NOOP_LOGGER: Pick<Logger, "debug" | "error" | "info" | "warn"> = {
   debug: () => undefined,
   error: () => undefined,
@@ -105,7 +112,9 @@ export class DurableRunQueue {
   >();
   private started = false;
   private closed = false;
+  private stopped = false;
   private pumpScheduled = false;
+  private closePromise: Promise<void> | null = null;
 
   public constructor(options: DurableRunQueueOptions) {
     if (
@@ -218,21 +227,47 @@ export class DurableRunQueue {
     });
   }
 
-  public async close(): Promise<void> {
+  public getSnapshot(): DurableRunQueueSnapshot {
+    return {
+      state: !this.started
+        ? "not_started"
+        : this.closed
+          ? this.stopped
+            ? "stopped"
+            : "stopping"
+          : "running",
+      activeRunCount: this.inFlight.size,
+      queuedRunCount: this.persistence.runs.countQueued(),
+      dispatchEnabled:
+        this.started &&
+        !this.closed &&
+        (this.dispatchGate === undefined || this.dispatchGate.canDispatch()),
+    };
+  }
+
+  public close(): Promise<void> {
+    if (this.closePromise !== null) {
+      return this.closePromise;
+    }
+
     this.closed = true;
     this.unsubscribeDispatchGate?.();
-    await Promise.all([...this.inFlight.values()].map((entry) => entry.promise));
-    const closeError = new QueueClosedError();
-    for (const waiters of this.runWaiters.values()) {
-      for (const waiter of waiters) {
-        waiter.reject(closeError);
+    this.closePromise = (async () => {
+      await Promise.all([...this.inFlight.values()].map((entry) => entry.promise));
+      const closeError = new QueueClosedError();
+      for (const waiters of this.runWaiters.values()) {
+        for (const waiter of waiters) {
+          waiter.reject(closeError);
+        }
       }
-    }
-    this.runWaiters.clear();
-    for (const resolve of this.idleWaiters) {
-      resolve();
-    }
-    this.idleWaiters.clear();
+      this.runWaiters.clear();
+      for (const resolve of this.idleWaiters) {
+        resolve();
+      }
+      this.idleWaiters.clear();
+      this.stopped = true;
+    })();
+    return this.closePromise;
   }
 
   private schedulePump(): void {

@@ -1,6 +1,7 @@
 [server]
 listen_host = "127.0.0.1"
 listen_port = 7421
+require_api_token = true
 api_token = "replace-me"
 
 [chatgpt]

@@ -83,6 +83,8 @@ function endpoint(command: CliCommand): string {
   switch (command.kind) {
     case "health":
       return "/v1/health";
+    case "doctor":
+      return "/v1/doctor";
     case "browser-status":
       return "/v1/browser/status";
     case "threads":
@@ -171,10 +173,6 @@ export class HttpCliExecutor implements CliCommandExecutor {
     const headers = new Headers({ accept: "application/json" });
     if (invocation.options.apiToken !== undefined) {
       headers.set("authorization", `Bearer ${invocation.options.apiToken}`);
-    } else if (command.kind !== "health") {
-      throw new Error(
-        "An API token is required; pass --api-token or set CHATGPT_PROXY_TOKEN",
-      );
     }
     if (body !== undefined) {
       headers.set("content-type", "application/json");
@@ -281,6 +279,26 @@ export class HttpCliExecutor implements CliCommandExecutor {
     const root = asRecord(payload);
     if (command.kind === "health") {
       this.stdout.write(`ok (${stringValue(root?.version)})\n`);
+      return;
+    }
+    if (command.kind === "doctor") {
+      this.stdout.write(
+        `Operational status: ${stringValue(root?.status)} (${stringValue(root?.version)})\n`,
+      );
+      const checks = Array.isArray(root?.checks) ? root.checks : [];
+      for (const value of checks) {
+        const diagnostic = asRecord(value);
+        const status = stringValue(diagnostic?.status).toUpperCase();
+        this.stdout.write(
+          `[${status}] ${stringValue(diagnostic?.summary)}\n`,
+        );
+        if (typeof diagnostic?.detail === "string") {
+          this.stdout.write(`  ${diagnostic.detail}\n`);
+        }
+        if (typeof diagnostic?.remediation === "string") {
+          this.stdout.write(`  Action: ${diagnostic.remediation}\n`);
+        }
+      }
       return;
     }
     if (command.kind === "browser-status") {

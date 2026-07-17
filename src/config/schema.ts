@@ -80,11 +80,13 @@ export function createConfigSchema(
               message: "Only loopback listen hosts are supported",
             }),
           listen_port: z.number().int().min(1).max(65_535).default(7421),
-          api_token: z.string().min(1),
+          require_api_token: z.boolean().default(true),
+          api_token: z.string().trim().default(""),
         })
         .transform((value) => ({
           listenHost: value.listen_host,
           listenPort: value.listen_port,
+          requireApiToken: value.require_api_token,
           apiToken: value.api_token,
         })),
       chatgpt: z
@@ -188,6 +190,14 @@ export function createConfigSchema(
         })),
     })
     .superRefine((value, context) => {
+      if (value.server.requireApiToken && value.server.apiToken.length === 0) {
+        context.addIssue({
+          code: "custom",
+          path: ["server", "api_token"],
+          message:
+            "An API token is required unless server.require_api_token is false",
+        });
+      }
       if (/^\/mnt\/[a-z](?:\/|$)/i.test(value.chatgpt.profileDirectory)) {
         context.addIssue({
           code: "custom",

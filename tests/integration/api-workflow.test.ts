@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   apiErrorResponseSchema,
   browserStatusResponseSchema,
+  doctorResponseSchema,
   listThreadsResponseSchema,
   mutationAcceptedResponseSchema,
   runStatusResponseSchema,
@@ -74,6 +75,52 @@ describe("HTTP API workflow", () => {
     expect(browserStatus.statusCode).toBe(200);
     expect(browserStatusResponseSchema.parse(browserStatus.json()).status).toBe(
       "ready",
+    );
+
+    const doctor = await testRuntime.runtime.app.inject({
+      method: "GET",
+      url: "/v1/doctor",
+      headers: authenticatedHeaders(),
+    });
+    expect(doctor.statusCode).toBe(200);
+    const report = doctorResponseSchema.parse(doctor.json());
+    expect(report.browser.status).toBe("ready");
+    expect(report.queue.state).toBe("running");
+    expect(report.checks.map((check) => check.id)).toEqual(
+      expect.arrayContaining([
+        "api_token",
+        "database_integrity",
+        "browser",
+        "queue",
+      ]),
+    );
+  });
+
+  it("allows local requests without authorization when token auth is disabled", async () => {
+    const testRuntime = createTestRuntime(false, false);
+    openRuntimes.push(testRuntime);
+
+    const browserStatus = await testRuntime.runtime.app.inject({
+      method: "GET",
+      url: "/v1/browser/status",
+    });
+    expect(browserStatus.statusCode).toBe(200);
+    expect(browserStatusResponseSchema.parse(browserStatus.json()).status).toBe(
+      "ready",
+    );
+
+    const doctor = await testRuntime.runtime.app.inject({
+      method: "GET",
+      url: "/v1/doctor",
+    });
+    expect(doctor.statusCode).toBe(200);
+    const report = doctorResponseSchema.parse(doctor.json());
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: "api_token",
+        status: "warning",
+        summary: "API authentication is disabled",
+      }),
     );
   });
 

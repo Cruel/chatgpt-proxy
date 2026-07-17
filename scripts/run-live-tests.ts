@@ -43,30 +43,37 @@ async function main(): Promise<void> {
     throw new Error("live_tests.enabled must be true in the selected config");
   }
 
-  if (mode === "delete") {
+  const destructiveAcceptance =
+    mode === "acceptance" &&
+    process.env.CHATGPT_PROXY_ACCEPTANCE_REMOTE_DELETE === "1";
+  if (mode === "delete" || destructiveAcceptance) {
     requireEnvironment("CHATGPT_PROXY_LIVE_DELETE");
     if (!config.chatGpt.deleteRemoteThread) {
       throw new Error(
-        "chatgpt.delete_remote_thread must be true for destructive live tests",
+        "chatgpt.delete_remote_thread must be true for destructive live operations",
       );
     }
     if (!config.liveTests.allowRemoteDeletion) {
       throw new Error(
-        "live_tests.allow_remote_deletion must be true for destructive live tests",
+        "live_tests.allow_remote_deletion must be true for destructive live operations",
       );
     }
   }
 
+  const commandArguments =
+    mode === "acceptance"
+      ? ["exec", "tsx", "scripts/live-acceptance.ts"]
+      : [
+          "exec",
+          "vitest",
+          "run",
+          "--config",
+          "vitest.live.config.ts",
+          "--passWithNoTests",
+        ];
   const result = spawnSync(
     "pnpm",
-    [
-      "exec",
-      "vitest",
-      "run",
-      "--config",
-      "vitest.live.config.ts",
-      "--passWithNoTests",
-    ],
+    commandArguments,
     {
       stdio: "inherit",
       env: {

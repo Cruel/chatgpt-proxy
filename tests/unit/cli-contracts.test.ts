@@ -16,6 +16,14 @@ function recordingExecutor(invocations: CliInvocation[]): CliCommandExecutor {
 }
 
 describe("CLI command contracts", () => {
+  it("parses the doctor command as an authenticated operational request", async () => {
+    const invocations: CliInvocation[] = [];
+
+    await runCli(["doctor"], recordingExecutor(invocations));
+
+    expect(invocations[0]?.command).toEqual({ kind: "doctor" });
+  });
+
   it("parses a new-thread command into a transport-independent invocation", async () => {
     const invocations: CliInvocation[] = [];
 

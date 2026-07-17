@@ -110,6 +110,61 @@ afterEach(async () => {
 });
 
 describe("durable run queue", () => {
+  it("stops dispatching queued runs while allowing active work to drain", async () => {
+    const persistence = createPersistence();
+    const firstThread = persistence.threads.create({
+      name: "Shutdown active",
+      state: "idle",
+    });
+    const secondThread = persistence.threads.create({
+      name: "Shutdown queued",
+      state: "idle",
+    });
+    const executor = new ControlledExecutor();
+    const activeGate = executor.addGate("shutdown-active");
+    const queue = createQueue(persistence, executor, 1);
+    queue.start();
+    queue.enqueue({
+      id: "shutdown-active",
+      threadId: firstThread.id,
+      operationType: "send_message",
+      inputText: "Finish during shutdown.",
+    });
+    queue.enqueue({
+      id: "shutdown-queued",
+      threadId: secondThread.id,
+      operationType: "send_message",
+      inputText: "Remain durable for restart.",
+    });
+
+    await waitUntil(() => executor.started.includes("shutdown-active"));
+    const firstClose = queue.close();
+    const secondClose = queue.close();
+    expect(secondClose).toBe(firstClose);
+    expect(queue.getSnapshot()).toMatchObject({
+      state: "stopping",
+      activeRunCount: 1,
+      queuedRunCount: 1,
+      dispatchEnabled: false,
+    });
+
+    activeGate.resolve();
+    await firstClose;
+    expect(executor.started).toEqual(["shutdown-active"]);
+    expect(persistence.runs.getRequiredById("shutdown-active").state).toBe(
+      "succeeded",
+    );
+    expect(persistence.runs.getRequiredById("shutdown-queued").state).toBe(
+      "queued",
+    );
+    expect(queue.getSnapshot()).toMatchObject({
+      state: "stopped",
+      activeRunCount: 0,
+      queuedRunCount: 1,
+      dispatchEnabled: false,
+    });
+  });
+
   it("executes different threads concurrently", async () => {
     const persistence = createPersistence();
     const firstThread = persistence.threads.create({

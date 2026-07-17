@@ -108,7 +108,11 @@ export function createCliProgram(executor: CliCommandExecutor): Command {
       "proxy base URL",
       process.env.CHATGPT_PROXY_URL ?? "http://127.0.0.1:7421",
     )
-    .option("--api-token <token>", "proxy bearer token", process.env.CHATGPT_PROXY_TOKEN)
+    .option(
+      "--api-token <token>",
+      "proxy bearer token when server authentication is enabled",
+      process.env.CHATGPT_PROXY_TOKEN,
+    )
     .option("--json", "emit machine-readable JSON")
     .option("--timeout <duration>", "client-side request timeout")
     .showHelpAfterError()
@@ -119,6 +123,13 @@ export function createCliProgram(executor: CliCommandExecutor): Command {
     .description("check service health")
     .action(async (_options: unknown, command: Command) => {
       await execute(executor, command, { kind: "health" });
+    });
+
+  program
+    .command("doctor")
+    .description("inspect operational readiness and remediation guidance")
+    .action(async (_options: unknown, command: Command) => {
+      await execute(executor, command, { kind: "doctor" });
     });
 
   program
