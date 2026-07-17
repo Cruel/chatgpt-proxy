@@ -245,11 +245,13 @@ export class HttpCliExecutor implements CliCommandExecutor {
         return {
           name: command.name,
           message: await this.resolvePrompt(command.input),
+          ...(command.thinking === undefined ? {} : { thinking: command.thinking }),
           wait: command.wait,
         };
       case "chat":
         return {
           message: await this.resolvePrompt(command.input),
+          ...(command.thinking === undefined ? {} : { thinking: command.thinking }),
           wait: command.wait,
         };
       case "delete":

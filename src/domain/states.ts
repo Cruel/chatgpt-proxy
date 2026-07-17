@@ -39,6 +39,8 @@ export const OPERATION_TYPES = [
   "delete_thread",
 ] as const;
 
+export const THINKING_LEVELS = ["instant", "medium", "high"] as const;
+
 export const BROWSER_STATUSES = [
   "starting",
   "ready",
@@ -83,6 +85,7 @@ export const threadStateSchema = z.enum(THREAD_STATES);
 export const runStateSchema = z.enum(RUN_STATES);
 export const submissionStateSchema = z.enum(SUBMISSION_STATES);
 export const operationTypeSchema = z.enum(OPERATION_TYPES);
+export const thinkingLevelSchema = z.enum(THINKING_LEVELS);
 export const browserStatusSchema = z.enum(BROWSER_STATUSES);
 export const apiErrorCodeSchema = z.enum(API_ERROR_CODES);
 
@@ -90,5 +93,6 @@ export type ThreadState = z.infer<typeof threadStateSchema>;
 export type RunState = z.infer<typeof runStateSchema>;
 export type SubmissionState = z.infer<typeof submissionStateSchema>;
 export type OperationType = z.infer<typeof operationTypeSchema>;
+export type ThinkingLevel = z.infer<typeof thinkingLevelSchema>;
 export type BrowserStatus = z.infer<typeof browserStatusSchema>;
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;

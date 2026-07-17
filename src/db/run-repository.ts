@@ -14,6 +14,7 @@ import type {
   OperationType,
   RunState,
   SubmissionState,
+  ThinkingLevel,
 } from "../domain/states.js";
 import {
   IdempotencyConflictError,
@@ -32,6 +33,7 @@ export interface CreateRunInput {
   readonly operationType: OperationType;
   readonly inputText?: string | null;
   readonly idempotencyKey?: string | null;
+  readonly thinkingLevel?: ThinkingLevel;
   readonly deleteRemoteRequested?: boolean;
   readonly deleteRemotePermitted?: boolean;
 }
@@ -78,6 +80,7 @@ export class RunRepository {
     const inputText = input.inputText ?? null;
     const inputSha256 = hashInput(inputText);
     const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
+    const thinkingLevel = input.thinkingLevel ?? "medium";
     const deleteRemoteRequested = input.deleteRemoteRequested ?? false;
     const deleteRemotePermitted = input.deleteRemotePermitted ?? false;
 
@@ -91,6 +94,7 @@ export class RunRepository {
         if (existing !== null) {
           if (
             existing.inputSha256 !== inputSha256 ||
+            existing.thinkingLevel !== thinkingLevel ||
             existing.deleteRemoteRequested !== deleteRemoteRequested ||
             existing.deleteRemotePermitted !== deleteRemotePermitted
           ) {
@@ -109,6 +113,7 @@ export class RunRepository {
           inputText: string | null;
           inputSha256: string | null;
           idempotencyKey: string | null;
+          thinkingLevel: ThinkingLevel;
           deleteRemoteRequested: number;
           deleteRemotePermitted: number;
           createdAt: string;
@@ -120,6 +125,7 @@ export class RunRepository {
             input_text,
             input_sha256,
             idempotency_key,
+            thinking_level,
             state,
             phase,
             submission_state,
@@ -133,6 +139,7 @@ export class RunRepository {
             @inputText,
             @inputSha256,
             @idempotencyKey,
+            @thinkingLevel,
             'queued',
             'queued',
             'not_started',
@@ -148,6 +155,7 @@ export class RunRepository {
           inputText,
           inputSha256,
           idempotencyKey,
+          thinkingLevel,
           deleteRemoteRequested: deleteRemoteRequested ? 1 : 0,
           deleteRemotePermitted: deleteRemotePermitted ? 1 : 0,
           createdAt: this.now(),

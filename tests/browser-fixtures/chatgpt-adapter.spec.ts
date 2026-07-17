@@ -126,6 +126,63 @@ test("creates a project conversation and returns only final assistant content", 
   }
 });
 
+test("selects the requested thinking level before submission", async () => {
+  const resources = await createResources();
+  try {
+    const path = "/project/example?scenario=thinking-selection";
+    const adapter = createAdapter(resources, path);
+    await adapter.start();
+
+    const result = await adapter.createConversation(
+      {
+        projectUrl: `${resources.server.baseUrl}${path}`,
+        message: "Use the requested thinking level.",
+        thinking: "high",
+      },
+      operationContext(),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        text: "Thinking high. Final response to: Use the requested thinking level.\n\nSecond paragraph.",
+      },
+    });
+  } finally {
+    await disposeResources(resources);
+  }
+});
+
+test("waits for an asynchronously rendered thinking menu", async () => {
+  const resources = await createResources();
+  try {
+    const projectUrl = `${resources.server.baseUrl}/project/example?scenario=delayed-thinking-menu`;
+    const adapter = createAdapter(
+      resources,
+      "/project/example?scenario=delayed-thinking-menu",
+    );
+    await adapter.start();
+
+    const result = await adapter.createConversation(
+      {
+        projectUrl,
+        message: "Wait for the thinking menu.",
+        thinking: "high",
+      },
+      operationContext(),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        text: "Thinking high. Final response to: Wait for the thinking menu.\n\nSecond paragraph.",
+      },
+    });
+  } finally {
+    await disposeResources(resources);
+  }
+});
+
 test("activates the project new-chat action when the composer is initially absent", async () => {
   const resources = await createResources();
   try {

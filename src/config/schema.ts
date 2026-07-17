@@ -98,12 +98,16 @@ export function createConfigSchema(
             defaultProfileDirectory,
           ),
           headless: z.boolean().default(false),
+          thinking_level: z
+            .enum(["instant", "medium", "high"])
+            .default("medium"),
           delete_remote_thread: z.boolean().default(false),
         })
         .transform((value) => ({
           projectUrl: value.project_url,
           profileDirectory: value.profile_dir,
           headless: value.headless,
+          thinkingLevel: value.thinking_level,
           deleteRemoteThread: value.delete_remote_thread,
         })),
       browser: z

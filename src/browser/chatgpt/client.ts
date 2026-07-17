@@ -218,6 +218,7 @@ export class ChatGptBrowserAdapter implements BrowserAdapter {
           operationContext,
           {
             submissionTimeoutMs: this.submissionTimeoutMs,
+            thinking: input.thinking ?? "medium",
             pollIntervalMs: this.pollIntervalMs,
           },
         );
@@ -300,6 +301,7 @@ export class ChatGptBrowserAdapter implements BrowserAdapter {
           context,
           {
             submissionTimeoutMs: this.submissionTimeoutMs,
+            thinking: input.thinking ?? "medium",
             pollIntervalMs: this.pollIntervalMs,
           },
         );

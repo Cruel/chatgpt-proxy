@@ -5,6 +5,7 @@ import type {
   CliCommandExecutor,
   CliGlobalOptions,
   CliInvocation,
+  CliThinkingLevel,
   PromptInput,
 } from "./contracts.js";
 
@@ -14,6 +15,7 @@ interface PromptOptions {
   readonly stdin?: boolean;
   readonly wait: boolean;
   readonly idempotencyKey?: string;
+  readonly thinking?: CliThinkingLevel;
 }
 
 interface DeleteOptions {
@@ -69,6 +71,10 @@ function addPromptOptions(command: Command): Command {
       ]),
     )
     .option("--no-wait", "return after the durable run is queued")
+    .addOption(
+      new Option("--thinking <level>", "thinking level")
+        .choices(["instant", "medium", "high"]),
+    )
     .option("--idempotency-key <key>", "supply an explicit idempotency key");
 }
 
@@ -162,6 +168,7 @@ export function createCliProgram(executor: CliCommandExecutor): Command {
       kind: "new",
       name,
       input: resolvePromptInput(options),
+      ...(options.thinking === undefined ? {} : { thinking: options.thinking }),
       wait: options.wait,
       idempotencyKey: options.idempotencyKey,
     });
@@ -176,6 +183,7 @@ export function createCliProgram(executor: CliCommandExecutor): Command {
       kind: "chat",
       name,
       input: resolvePromptInput(options),
+      ...(options.thinking === undefined ? {} : { thinking: options.thinking }),
       wait: options.wait,
       idempotencyKey: options.idempotencyKey,
     });

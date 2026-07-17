@@ -192,6 +192,26 @@ export async function firstVisibleLocator(
   return null;
 }
 
+export async function waitForVisibleLocator(
+  root: LocatorRoot,
+  selectors: readonly string[],
+  options: {
+    readonly timeoutMs: number;
+    readonly pollIntervalMs?: number;
+  },
+): Promise<Locator | null> {
+  const deadline = Date.now() + options.timeoutMs;
+  const pollIntervalMs = options.pollIntervalMs ?? 100;
+  while (Date.now() < deadline) {
+    const locator = await firstVisibleLocator(root, selectors);
+    if (locator !== null) {
+      return locator;
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+  return firstVisibleLocator(root, selectors);
+}
+
 export async function anyVisible(
   root: LocatorRoot,
   selectors: readonly string[],

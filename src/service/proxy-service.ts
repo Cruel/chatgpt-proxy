@@ -7,6 +7,7 @@ import {
 } from "../db/errors.js";
 import type { Persistence } from "../db/persistence.js";
 import type { RunRecord, ThreadRecord } from "../domain/models.js";
+import type { ThinkingLevel } from "../domain/states.js";
 import { decideDeletionPolicy } from "../domain/deletion-policy.js";
 import type { DurableRunQueue } from "../scheduler/durable-run-queue.js";
 import { QueueFullError } from "../scheduler/errors.js";
@@ -36,11 +37,13 @@ export interface MutationOptions {
 export interface ServiceCreateThreadInput extends MutationOptions {
   readonly name: string;
   readonly message: string;
+  readonly thinking?: ThinkingLevel;
 }
 
 export interface ServiceSendMessageInput extends MutationOptions {
   readonly name: string;
   readonly message: string;
+  readonly thinking?: ThinkingLevel;
 }
 
 export interface ServiceDeleteThreadInput extends MutationOptions {
@@ -151,6 +154,7 @@ export class ProxyService {
           threadId: reserved.id,
           operationType: "create_thread",
           inputText: input.message,
+          thinkingLevel: input.thinking ?? this.config.chatGpt.thinkingLevel,
           idempotencyKey: input.idempotencyKey ?? null,
         });
         return { thread: reserved, run: result.run };
@@ -195,6 +199,7 @@ export class ProxyService {
       threadId: thread.id,
       operationType: "send_message",
       inputText: input.message,
+      thinkingLevel: input.thinking ?? this.config.chatGpt.thinkingLevel,
       idempotencyKey: input.idempotencyKey ?? null,
     });
     if (result.created && thread.state === "idle") {

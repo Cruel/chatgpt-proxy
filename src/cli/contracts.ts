@@ -5,6 +5,8 @@ export interface CliGlobalOptions {
   readonly timeout: string | undefined;
 }
 
+export type CliThinkingLevel = "instant" | "medium" | "high";
+
 export type PromptInput =
   | { readonly kind: "message"; readonly value: string }
   | { readonly kind: "file"; readonly value: string }
@@ -19,6 +21,7 @@ export type CliCommand =
       readonly kind: "new";
       readonly name: string;
       readonly input: PromptInput;
+      readonly thinking?: CliThinkingLevel;
       readonly wait: boolean;
       readonly idempotencyKey: string | undefined;
     }
@@ -26,6 +29,7 @@ export type CliCommand =
       readonly kind: "chat";
       readonly name: string;
       readonly input: PromptInput;
+      readonly thinking?: CliThinkingLevel;
       readonly wait: boolean;
       readonly idempotencyKey: string | undefined;
     }

@@ -121,6 +121,7 @@ pnpm cli doctor
 pnpm cli threads
 pnpm cli new example --message "Review this design."
 pnpm cli chat example --message "Now focus on failure handling."
+pnpm cli chat example --message "Analyze this carefully." --thinking high
 pnpm cli info example
 pnpm cli delete example
 ```

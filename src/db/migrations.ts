@@ -109,6 +109,14 @@ const MIGRATIONS: readonly Migration[] = [
       WHERE state IN ('deleted_local', 'deleted_remote');
     `,
   },
+  {
+    version: 3,
+    name: "persist thinking level",
+    sql: `
+      ALTER TABLE runs ADD COLUMN thinking_level TEXT NOT NULL DEFAULT 'medium'
+        CHECK (thinking_level IN ('instant', 'medium', 'high'));
+    `,
+  },
 ];
 
 interface MigrationRow {

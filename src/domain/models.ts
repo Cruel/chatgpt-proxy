@@ -2,6 +2,7 @@ import type {
   OperationType,
   RunState,
   SubmissionState,
+  ThinkingLevel,
   ThreadState,
 } from "./states.js";
 
@@ -28,6 +29,7 @@ export interface RunRecord {
   readonly inputText: string | null;
   readonly inputSha256: string | null;
   readonly idempotencyKey: string | null;
+  readonly thinkingLevel: ThinkingLevel;
   readonly state: RunState;
   readonly phase: string;
   readonly submissionState: SubmissionState;

@@ -28,6 +28,7 @@ export function presentRun(run: RunRecord): RunSummary {
   return {
     id: run.id,
     operationType: run.operationType,
+    thinkingLevel: run.thinkingLevel,
     state: run.state,
     phase: run.phase,
     submissionState: run.submissionState,

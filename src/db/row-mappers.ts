@@ -10,6 +10,7 @@ import {
   operationTypeSchema,
   runStateSchema,
   submissionStateSchema,
+  thinkingLevelSchema,
   threadStateSchema,
 } from "../domain/states.js";
 
@@ -36,6 +37,7 @@ export interface RunRow {
   readonly input_text: string | null;
   readonly input_sha256: string | null;
   readonly idempotency_key: string | null;
+  readonly thinking_level: string;
   readonly state: string;
   readonly phase: string;
   readonly submission_state: string;
@@ -110,6 +112,7 @@ export function mapRunRow(row: RunRow): RunRecord {
     inputText: row.input_text,
     inputSha256: row.input_sha256,
     idempotencyKey: row.idempotency_key,
+    thinkingLevel: thinkingLevelSchema.parse(row.thinking_level),
     state: runStateSchema.parse(row.state),
     phase: row.phase,
     submissionState: submissionStateSchema.parse(row.submission_state),

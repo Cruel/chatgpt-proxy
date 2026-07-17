@@ -6,6 +6,7 @@ import {
   operationTypeSchema,
   runStateSchema,
   submissionStateSchema,
+  thinkingLevelSchema,
   threadStateSchema,
 } from "../domain/states.js";
 
@@ -62,11 +63,13 @@ export const listThreadsQuerySchema = z.strictObject({
 export const createThreadRequestSchema = z.strictObject({
   name: threadNameSchema,
   message: messageInputSchema,
+  thinking: thinkingLevelSchema.optional(),
   wait: z.boolean().default(true),
 });
 
 export const sendMessageRequestSchema = z.strictObject({
   message: messageInputSchema,
+  thinking: thinkingLevelSchema.optional(),
   wait: z.boolean().default(true),
 });
 
@@ -92,6 +95,7 @@ export const idempotencyHeadersSchema = z.strictObject({
 export const runSummarySchema = z.strictObject({
   id: runIdSchema,
   operationType: operationTypeSchema,
+  thinkingLevel: thinkingLevelSchema,
   state: runStateSchema,
   phase: z.string(),
   submissionState: submissionStateSchema,

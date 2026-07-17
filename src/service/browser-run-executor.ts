@@ -141,6 +141,7 @@ export class BrowserRunExecutor implements RunExecutor {
       {
         projectUrl: this.config.chatGpt.projectUrl,
         message,
+        thinking: run.thinkingLevel,
       },
       {
         runId: run.id,
@@ -224,7 +225,7 @@ export class BrowserRunExecutor implements RunExecutor {
     });
 
     const result = await this.adapter.sendMessage(
-      { conversation, message },
+      { conversation, message, thinking: run.thinkingLevel },
       {
         runId: run.id,
         threadId: thread.id,

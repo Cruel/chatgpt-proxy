@@ -1,4 +1,8 @@
-import type { ApiErrorCode, BrowserStatus } from "../domain/states.js";
+import type {
+  ApiErrorCode,
+  BrowserStatus,
+  ThinkingLevel,
+} from "../domain/states.js";
 
 export interface BrowserOperationContext {
   readonly runId: string;
@@ -36,11 +40,13 @@ export interface FinalAssistantResponse {
 export interface CreateConversationInput {
   readonly projectUrl: string;
   readonly message: string;
+  readonly thinking?: ThinkingLevel;
 }
 
 export interface SendMessageInput {
   readonly conversation: RemoteConversationReference;
   readonly message: string;
+  readonly thinking?: ThinkingLevel;
 }
 
 export type ConversationInspectionState =

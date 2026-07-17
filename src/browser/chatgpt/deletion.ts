@@ -12,6 +12,7 @@ import { detectBlockingFailure } from "./error-detector.js";
 import {
   CHATGPT_SELECTORS,
   firstVisibleLocator,
+  waitForVisibleLocator,
 } from "./selectors.js";
 import { extractConversationId } from "./url.js";
 
@@ -329,13 +330,19 @@ export async function deleteRemoteConversation(
   }
 
   const dialogText = (await dialog.innerText().catch(() => "")).trim();
-  const confirmButton = await firstVisibleLocator(
+  const remainingTimeoutMs = Math.max(1, deadline - Date.now());
+  const confirmButton = await waitForVisibleLocator(
     dialog,
     CHATGPT_SELECTORS.deleteConfirmButton,
+    { timeoutMs: remainingTimeoutMs, pollIntervalMs: options.pollIntervalMs },
   );
-  const cancelButton = await firstVisibleLocator(
+  const cancelButton = await waitForVisibleLocator(
     dialog,
     CHATGPT_SELECTORS.deleteCancelButton,
+    {
+      timeoutMs: Math.max(1, deadline - Date.now()),
+      pollIntervalMs: options.pollIntervalMs,
+    },
   );
   if (
     !dialogLooksLikeDeletion(dialogText) ||

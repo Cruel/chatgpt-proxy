@@ -196,6 +196,12 @@ function interactiveChatHtml(
       <button data-testid="new-chat-button" type="button">New chat</button>
       ${deletionControls}
       <section id="turns">${initialTurns}</section>
+      <button id="thinking-level" type="button">Medium</button>
+      <div id="thinking-menu" role="menu" hidden>
+        <button role="menuitem" type="button" data-thinking="instant">Instant 5.5</button>
+        <button role="menuitem" type="button" data-thinking="medium">Medium</button>
+        <button role="menuitem" type="button" data-thinking="high">High</button>
+      </div>
       <div id="prompt-textarea" contenteditable="true" role="textbox"${composerVisibility}></div>
       <button data-testid="send-button" aria-label="Send prompt" type="button"${composerVisibility}>Send</button>
     </main>
@@ -206,6 +212,23 @@ function interactiveChatHtml(
       const composer = document.getElementById('prompt-textarea');
       const turns = document.getElementById('turns');
       const send = document.querySelector('[data-testid="send-button"]');
+      const thinkingButton = document.getElementById('thinking-level');
+      const thinkingMenu = document.getElementById('thinking-menu');
+      let thinkingLevel = 'medium';
+      thinkingButton.addEventListener('click', () => {
+        setTimeout(() => {
+          thinkingMenu.hidden = false;
+        }, scenario === 'delayed-thinking-menu' ? 250 : 0);
+      });
+      thinkingMenu.querySelectorAll('[data-thinking]').forEach((choice) => {
+        choice.addEventListener('click', () => {
+          thinkingLevel = choice.dataset.thinking;
+          thinkingButton.textContent = choice.textContent.startsWith('Instant')
+            ? 'Instant'
+            : choice.textContent;
+          thinkingMenu.hidden = true;
+        });
+      });
       const conversationMenuButton = document.querySelector('[data-testid="conversation-options-button"]');
       const conversationMenu = document.getElementById('conversation-menu');
       const deleteMenuItem = document.querySelector('[data-testid="delete-chat-menu-item"]');
@@ -322,7 +345,10 @@ function interactiveChatHtml(
             return;
           }
           const markdown = turn.querySelector('.markdown');
-          markdown.innerHTML = '<p>Final response to: ' + message.replaceAll('&', '&amp;').replaceAll('<', '&lt;') + '</p><p>Second paragraph.</p>';
+          const thinkingPrefix = ['thinking-selection', 'delayed-thinking-menu'].includes(scenario)
+            ? 'Thinking ' + thinkingLevel + '. '
+            : '';
+          markdown.innerHTML = '<p>' + thinkingPrefix + 'Final response to: ' + message.replaceAll('&', '&amp;').replaceAll('<', '&lt;') + '</p><p>Second paragraph.</p>';
           turn.querySelector('[data-testid="tool-progress"]').remove();
           stop.remove();
           if (scenario !== 'stable-no-copy') {

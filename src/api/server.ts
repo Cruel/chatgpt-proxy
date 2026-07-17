@@ -169,6 +169,7 @@ export function createApiServer(
     const result = await options.service.createThread({
       name: body.name,
       message: body.message,
+      ...(body.thinking === undefined ? {} : { thinking: body.thinking }),
       wait: body.wait,
       idempotencyKey: idempotencyKey(request),
     });
@@ -186,6 +187,7 @@ export function createApiServer(
     const result = await options.service.sendMessage({
       name: parameters.name,
       message: body.message,
+      ...(body.thinking === undefined ? {} : { thinking: body.thinking }),
       wait: body.wait,
       idempotencyKey: idempotencyKey(request),
     });
