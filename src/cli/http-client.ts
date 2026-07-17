@@ -556,6 +556,17 @@ export class HttpCliExecutor implements CliCommandExecutor {
         this.stdout.write(
           `Pending run ${stringValue(pendingRun.id)}: ${stringValue(pendingRun.state)} (${stringValue(pendingRun.phase)})\n`,
         );
+        if (typeof pendingRun.errorMessage === "string") {
+          this.stdout.write(`Error: ${pendingRun.errorMessage}\n`);
+        }
+      }
+
+      const history = Array.isArray(root?.history) ? root.history : [];
+      const latestHistoryEntry = asRecord(history.at(-1));
+      if (typeof latestHistoryEntry?.finalResponse === "string") {
+        this.stdout.write(`${latestHistoryEntry.finalResponse}\n`);
+      } else if (typeof thread.lastErrorMessage === "string") {
+        this.stdout.write(`Error: ${thread.lastErrorMessage}\n`);
       }
     } else if (run === null) {
       this.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);

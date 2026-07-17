@@ -83,6 +83,9 @@ export class BrowserRunExecutor implements RunExecutor {
     context: RunExecutionContext,
   ): Promise<RunExecutionResult> {
     try {
+      if (run.phase === "recovery_pending") {
+        return await this.recoverConversation(run, context);
+      }
       switch (run.operationType) {
         case "create_thread":
           return await this.createThread(run, context);
@@ -121,6 +124,80 @@ export class BrowserRunExecutor implements RunExecutor {
       }
       throw error;
     }
+  }
+
+  private async recoverConversation(
+    run: RunRecord,
+    context: RunExecutionContext,
+  ): Promise<RunExecutionResult> {
+    const thread = context.persistence.threads.getRequiredById(run.threadId);
+    const conversation = remoteReference(thread);
+    const message = this.requireInput(run);
+    if (conversation === null || this.adapter.recoverConversation === undefined) {
+      const errorMessage =
+        conversation === null
+          ? "Cannot recover the run because its remote conversation mapping is missing"
+          : "The configured browser adapter does not support conversation recovery";
+      context.persistence.threads.setState(
+        thread.id,
+        "needs_attention",
+        "unexpected_state",
+        errorMessage,
+      );
+      return {
+        outcome: "needs_attention",
+        errorCode: "unexpected_state",
+        errorMessage,
+      };
+    }
+
+    this.markThreadRunning(thread.id, context);
+    context.updateProgress({
+      state: "running",
+      phase: "recovering_existing_conversation",
+      submissionState: run.submissionState,
+    });
+    context.recordEvent("conversation_recovery_started", {
+      conversation_id: conversation.conversationId,
+      url: conversation.url,
+    });
+
+    const result = await this.adapter.recoverConversation(
+      { conversation, message, thinking: run.thinkingLevel },
+      {
+        runId: run.id,
+        threadId: thread.id,
+        signal: context.signal,
+      },
+    );
+    if (!result.ok) {
+      await this.captureFailureDiagnostics(run, result.error, context);
+      const outcome = failureOutcome(result.error);
+      this.markThreadFailure(
+        thread.id,
+        failureThreadState(outcome),
+        result.error.code,
+        result.error.message,
+        context,
+      );
+      return outcome;
+    }
+
+    context.updateProgress({
+      state: "running",
+      phase: "response_completed_after_recovery",
+      submissionState: "confirmed",
+    });
+    context.persistence.threads.setRemoteMapping(thread.id, {
+      conversationId: result.value.conversation.conversationId,
+      url: result.value.conversation.url,
+      title: result.value.conversation.title,
+    });
+    context.recordEvent("conversation_recovery_completed", {
+      conversation_id: result.value.conversation.conversationId,
+    });
+    this.restoreThreadReadyState(thread.id, run.id, context);
+    return { outcome: "succeeded", finalResponse: result.value.text };
   }
 
   private async createThread(

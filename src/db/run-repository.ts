@@ -235,6 +235,60 @@ export class RunRepository {
       .map(mapRunRow);
   }
 
+  public listRecoverableBrowserFailures(): readonly RunRecord[] {
+    return this.database
+      .prepare<[], RunRow>(`
+        SELECT runs.* FROM runs
+        INNER JOIN threads ON threads.id = runs.thread_id
+        WHERE runs.state IN ('failed', 'needs_attention')
+          AND runs.operation_type IN ('create_thread', 'send_message')
+          AND runs.input_text IS NOT NULL
+          AND threads.remote_conversation_id IS NOT NULL
+          AND threads.remote_url IS NOT NULL
+          AND threads.deleted_at IS NULL
+          AND threads.state NOT IN ('deleted_local', 'deleted_remote')
+          AND (
+            (
+              runs.state = 'failed'
+              AND runs.error_code = 'unexpected_state'
+              AND (
+                runs.error_message LIKE '%Target page, context or browser has been closed%'
+                OR runs.error_message LIKE '%browser has been closed%'
+                OR runs.error_message LIKE '%GPU process isn''t usable%'
+              )
+            )
+            OR (
+              runs.state = 'needs_attention'
+              AND runs.error_code = 'submission_ambiguous'
+            )
+          )
+        ORDER BY runs.created_at, runs.id
+      `)
+      .all()
+      .map(mapRunRow);
+  }
+
+  public requeueForRecovery(runId: string): RunRecord {
+    const current = this.getRequiredById(runId);
+    if (!canTransitionRunState(current.state, "queued")) {
+      throw new InvalidRunTransitionError(runId, current.state, "queued");
+    }
+    this.database
+      .prepare<{ runId: string }>(`
+        UPDATE runs
+        SET state = 'queued',
+            phase = 'recovery_pending',
+            started_at = NULL,
+            completed_at = NULL,
+            final_response = NULL,
+            error_code = NULL,
+            error_message = NULL
+        WHERE id = @runId
+      `)
+      .run({ runId });
+    return this.getRequiredById(runId);
+  }
+
   public listByThread(threadId: string): readonly RunRecord[] {
     return this.database
       .prepare<{ threadId: string }, RunRow>(`

@@ -22,6 +22,68 @@ function invocation(
 }
 
 describe("CLI HTTP client", () => {
+  it("renders thread info with the latest final response or error", async () => {
+    const outputs: string[] = [];
+    const payloads = [
+      {
+        thread: {
+          name: "completed",
+          state: "idle",
+          lastErrorMessage: null,
+        },
+        pendingRun: null,
+        history: [
+          {
+            finalResponse: "Completed response body",
+          },
+        ],
+      },
+      {
+        thread: {
+          name: "failed",
+          state: "needs_attention",
+          lastErrorMessage: "Recovery could not verify the remote prompt",
+        },
+        pendingRun: null,
+        history: [],
+      },
+    ];
+    let responseIndex = 0;
+    const executor = new HttpCliExecutor({
+      fetchImplementation: () =>
+        Promise.resolve(
+          new Response(JSON.stringify(payloads[responseIndex++]), {
+            status: 200,
+          }),
+        ),
+      stdout: {
+        write(text) {
+          outputs.push(String(text));
+          return true;
+        },
+      },
+    });
+
+    for (const name of ["completed", "failed"]) {
+      await executor.execute({
+        command: { kind: "info", name },
+        options: {
+          serverUrl: "http://127.0.0.1:7421",
+          apiToken: undefined,
+          json: false,
+          timeout: "5s",
+        },
+      });
+    }
+
+    expect(outputs.join("")).toContain(
+      "completed: idle\nCompleted response body\n",
+    );
+    expect(outputs.join("")).toContain(
+      "failed: needs_attention\nError: Recovery could not verify the remote prompt\n",
+    );
+  });
+
   it("renders doctor checks with actionable remediation", async () => {
     let capturedUrl = "";
     let output = "";

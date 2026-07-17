@@ -18,7 +18,77 @@ export function reconcileInterruptedRuns(
 ): readonly ReconciledRun[] {
   const reconciled: ReconciledRun[] = [];
 
+  for (const failedRun of persistence.runs.listRecoverableBrowserFailures()) {
+    persistence.transaction(() => {
+      persistence.runs.requeueForRecovery(failedRun.id);
+      persistence.runEvents.append(
+        failedRun.id,
+        "run_recovery_queued_after_browser_failure",
+        {
+          previous_state: failedRun.state,
+          submission_state: failedRun.submissionState,
+        },
+      );
+      const thread = persistence.threads.getRequiredById(failedRun.threadId);
+      persistence.threads.setState(thread.id, "running");
+    });
+  }
+
   for (const activeRun of persistence.runs.listActive()) {
+    const thread = persistence.threads.getRequiredById(activeRun.threadId);
+    if (
+      thread.deletedAt !== null ||
+      thread.state === "deleted_local" ||
+      thread.state === "deleted_remote"
+    ) {
+      persistence.transaction(() => {
+        persistence.runs.transition(activeRun.id, {
+          state: "cancelled",
+          phase: "restart_reconciliation",
+          errorCode: "thread_deleted",
+          errorMessage:
+            "Recovery was skipped because the local thread had already been deleted",
+        });
+        persistence.runEvents.append(
+          activeRun.id,
+          "run_recovery_skipped_for_deleted_thread",
+          { thread_state: thread.state },
+        );
+        persistence.threads.setState(
+          thread.id,
+          thread.remoteDeletedAt === null ? "deleted_local" : "deleted_remote",
+        );
+      });
+      continue;
+    }
+    if (
+      activeRun.operationType !== "delete_thread" &&
+      activeRun.inputText !== null &&
+      thread.remoteConversationId !== null &&
+      thread.remoteUrl !== null
+    ) {
+      persistence.transaction(() => {
+        persistence.runs.transition(activeRun.id, {
+          state: "interrupted",
+          phase: "restart_reconciliation",
+          errorCode: "unexpected_state",
+          errorMessage:
+            "Service restarted while a mapped ChatGPT conversation was active",
+        });
+        persistence.runs.requeueForRecovery(activeRun.id);
+        persistence.runEvents.append(
+          activeRun.id,
+          "run_recovery_queued_after_restart",
+          {
+            previous_state: activeRun.state,
+            submission_state: activeRun.submissionState,
+          },
+        );
+        persistence.threads.setState(thread.id, "running");
+      });
+      continue;
+    }
+
     persistence.transaction(() => {
       const run = persistence.runs.getRequiredById(activeRun.id);
       if (!isActiveRunState(run.state)) {

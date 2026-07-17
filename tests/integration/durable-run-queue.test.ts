@@ -338,6 +338,82 @@ describe("durable run queue", () => {
     await queue.waitForIdle();
   });
 
+  it("rechecks mapped needs-attention runs and skips deleted threads", async () => {
+    const persistence = createPersistence();
+    const recoverableThread = persistence.threads.create({
+      name: "Recoverable attention",
+      state: "running",
+    });
+    persistence.threads.setRemoteMapping(recoverableThread.id, {
+      conversationId: "recoverable-conversation",
+      url: "https://chatgpt.example/c/recoverable-conversation",
+      title: null,
+    });
+    const recoverableRun = persistence.runs.createOrGet({
+      id: "recoverable-attention-run",
+      threadId: recoverableThread.id,
+      operationType: "create_thread",
+      inputText: "Persisted recovery prompt",
+    }).run;
+    persistence.runs.claimQueued(recoverableRun.id);
+    persistence.runs.transition(recoverableRun.id, {
+      state: "submitting",
+      phase: "creating_conversation",
+      submissionState: "typed",
+    });
+    persistence.runs.transition(recoverableRun.id, {
+      state: "needs_attention",
+      phase: "needs_attention",
+      errorCode: "submission_ambiguous",
+      errorMessage: "Inspect the mapped conversation",
+    });
+    persistence.threads.setState(
+      recoverableThread.id,
+      "needs_attention",
+      "submission_ambiguous",
+      "Inspect the mapped conversation",
+    );
+
+    const deletedThread = persistence.threads.create({
+      name: "Deleted recovery",
+      state: "running",
+    });
+    persistence.threads.setRemoteMapping(deletedThread.id, {
+      conversationId: "deleted-conversation",
+      url: "https://chatgpt.example/c/deleted-conversation",
+      title: null,
+    });
+    const deletedRun = persistence.runs.createOrGet({
+      id: "deleted-active-run",
+      threadId: deletedThread.id,
+      operationType: "create_thread",
+      inputText: "Do not recover this",
+    }).run;
+    persistence.runs.claimQueued(deletedRun.id);
+    persistence.runs.transition(deletedRun.id, {
+      state: "running",
+      phase: "waiting_for_response",
+      submissionState: "confirmed",
+    });
+    persistence.threads.setState(deletedThread.id, "deleted_local");
+
+    const executor = new ControlledExecutor();
+    const queue = createQueue(persistence, executor);
+    queue.start();
+    await queue.waitForIdle();
+
+    expect(executor.started).toEqual(["recoverable-attention-run"]);
+    expect(
+      persistence.runs.getRequiredById("recoverable-attention-run").state,
+    ).toBe("succeeded");
+    expect(persistence.runs.getRequiredById("deleted-active-run").state).toBe(
+      "cancelled",
+    );
+    expect(persistence.threads.getRequiredById(deletedThread.id).state).toBe(
+      "deleted_local",
+    );
+  });
+
   it("enforces queue depth without rejecting an idempotent retry", () => {
     const persistence = createPersistence();
     const firstThread = persistence.threads.create({ name: "Queue one" });

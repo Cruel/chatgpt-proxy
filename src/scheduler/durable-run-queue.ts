@@ -335,7 +335,11 @@ export class DurableRunQueue {
     if (this.dispatchGate !== undefined && !this.dispatchGate.canDispatch()) {
       return;
     }
-    const claimed = this.persistence.runs.claimQueued(runId);
+    const queued = this.persistence.runs.getRequiredById(runId);
+    const claimed = this.persistence.runs.claimQueued(
+      runId,
+      queued.phase === "recovery_pending" ? "recovery_pending" : "navigating",
+    );
     if (claimed === null) {
       return;
     }

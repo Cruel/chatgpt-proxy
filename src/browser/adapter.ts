@@ -129,6 +129,11 @@ export interface BrowserAdapter {
     context: BrowserOperationContext,
   ): Promise<BrowserAdapterResult<FinalAssistantResponse>>;
 
+  recoverConversation?(
+    input: SendMessageInput,
+    context: BrowserOperationContext,
+  ): Promise<BrowserAdapterResult<FinalAssistantResponse>>;
+
   inspectConversation(
     conversation: RemoteConversationReference,
     context: BrowserOperationContext,

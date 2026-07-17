@@ -415,7 +415,7 @@ export class BrowserManager {
           "--disable-extensions",
           "--disable-component-extensions-with-background-pages",
         ],
-        args: ["--disable-session-crashed-bubble"],
+        args: ["--disable-session-crashed-bubble", "--disable-gpu"],
         ...(this.channel === undefined ? {} : { channel: this.channel }),
       });
     } catch (error) {

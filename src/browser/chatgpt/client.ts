@@ -175,6 +175,24 @@ export class ChatGptBrowserAdapter implements BrowserAdapter {
     return this.manager.refreshStatus();
   }
 
+  public recoverConversation(
+    input: SendMessageInput,
+    context: BrowserOperationContext,
+  ): Promise<BrowserAdapterResult<FinalAssistantResponse>> {
+    return this.recoverSubmittedOperation(
+      input.conversation,
+      input.message,
+      {
+        code: "submission_ambiguous",
+        message:
+          "The browser stopped while the operation may have been running; inspect the existing conversation without resubmitting",
+        retryable: false,
+        observedUrl: input.conversation.url,
+      },
+      context,
+    );
+  }
+
   public waitForReady(options?: {
     readonly timeoutMs?: number;
     readonly signal?: AbortSignal;
@@ -472,6 +490,7 @@ export class ChatGptBrowserAdapter implements BrowserAdapter {
   private async withLease<T>(
     context: BrowserOperationContext,
     operation: (page: Page) => Promise<BrowserAdapterResult<T>>,
+    options: { readonly discardAfter?: boolean } = {},
   ): Promise<BrowserAdapterResult<T>> {
     let lease: PageLease | null = null;
     let observation: PageDiagnosticObservation | null = null;
@@ -504,7 +523,9 @@ export class ChatGptBrowserAdapter implements BrowserAdapter {
       return { ok: false, error: failure };
     } finally {
       observation?.stop();
-      await lease?.release({ discard }).catch(() => undefined);
+      await lease
+        ?.release({ discard: discard || options.discardAfter === true })
+        .catch(() => undefined);
     }
   }
 
@@ -514,21 +535,24 @@ export class ChatGptBrowserAdapter implements BrowserAdapter {
     originalFailure: BrowserAdapterFailure,
     context: BrowserOperationContext,
   ): Promise<BrowserAdapterResult<FinalAssistantResponse>> {
-    return this.withLease(context, (page) =>
-      recoverSubmittedConversation(
-        page,
-        this.manager,
-        conversation,
-        message,
-        originalFailure,
-        context,
-        {
-          navigationTimeoutMs: this.navigationTimeoutMs,
-          responseTimeoutMs: this.responseTimeoutMs,
-          pollIntervalMs: this.pollIntervalMs,
-          stableContentMs: this.stableContentMs,
-        },
-      ),
+    return this.withLease(
+      context,
+      (page) =>
+        recoverSubmittedConversation(
+          page,
+          this.manager,
+          conversation,
+          message,
+          originalFailure,
+          context,
+          {
+            navigationTimeoutMs: this.navigationTimeoutMs,
+            responseTimeoutMs: this.responseTimeoutMs,
+            pollIntervalMs: this.pollIntervalMs,
+            stableContentMs: this.stableContentMs,
+          },
+        ),
+      { discardAfter: true },
     );
   }
 

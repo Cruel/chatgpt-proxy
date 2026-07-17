@@ -28,8 +28,16 @@ async function latestUserText(page: Page): Promise<string | null> {
   if (count === 0) {
     return null;
   }
+  const turn = turns.nth(count - 1);
+  const content = turn
+    .locator(
+      '[data-testid="collapsible-user-message-content"], [data-testid="message-content"], [data-message-content]',
+    )
+    .first();
   const text = normalizeMessage(
-    await turns.nth(count - 1).innerText().catch(() => ""),
+    await content
+      .innerText()
+      .catch(() => turn.innerText().catch(() => "")),
   );
   return text.length === 0 ? null : text;
 }

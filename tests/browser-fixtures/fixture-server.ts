@@ -305,7 +305,17 @@ function interactiveChatHtml(
         const turn = document.createElement('article');
         turn.dataset.testid = 'user-turn';
         turn.dataset.messageAuthorRole = 'user';
-        turn.textContent = message;
+        if (['late-ambiguous-submission', 'recovery-after-timeout'].includes(scenario)) {
+          const content = document.createElement('div');
+          content.dataset.testid = 'collapsible-user-message-content';
+          content.textContent = message;
+          turn.append(content);
+          const toggle = document.createElement('button');
+          toggle.textContent = 'Show more Show less';
+          turn.append(toggle);
+        } else {
+          turn.textContent = message;
+        }
         turns.append(turn);
       }
 
