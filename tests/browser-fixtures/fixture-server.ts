@@ -387,6 +387,14 @@ function interactiveChatHtml(
         turns.append(turn);
       }
 
+      function addStableAssistantWithoutCopy(message) {
+        const turn = document.createElement('article');
+        turn.dataset.testid = 'assistant-turn';
+        turn.dataset.messageAuthorRole = 'assistant';
+        turn.innerHTML = '<div class="markdown"><p>Final response to: ' + message.replaceAll('&', '&amp;').replaceAll('<', '&lt;') + '</p><p>Second paragraph.</p></div>';
+        turns.append(turn);
+      }
+
       const pendingRecoveryMessage = localStorage.getItem(recoveryStorageKey);
       if (pendingRecoveryMessage !== null) {
         const restore = () => {
@@ -429,7 +437,11 @@ function interactiveChatHtml(
         if (!location.pathname.includes('/c/')) {
           history.replaceState(null, '', '/c/' + conversationId + location.search);
         }
-        addAssistantProgress(message);
+        if (scenario === 'stable-no-copy') {
+          addStableAssistantWithoutCopy(message);
+        } else {
+          addAssistantProgress(message);
+        }
       });
 
       composer.addEventListener('keydown', (event) => {

@@ -190,8 +190,6 @@ export async function waitForFinalAssistantResponse(
   const deadline = Date.now() + options.responseTimeoutMs;
   let stableText = "";
   let stableSince = Date.now();
-  let targetFirstSeenAt: number | null = null;
-  let sawActiveGeneration = false;
   let identifiedConversationId = fallbackConversation?.conversationId ?? null;
 
   while (Date.now() < deadline) {
@@ -211,7 +209,6 @@ export async function waitForFinalAssistantResponse(
 
     const target = await targetAssistantTurn(page, snapshot);
     if (target !== null) {
-      targetFirstSeenAt ??= Date.now();
       const text = await extractAssistantTurnText(target);
       const generationActive = await anyVisible(
         page,
@@ -219,7 +216,6 @@ export async function waitForFinalAssistantResponse(
       );
       const toolActive = await anyVisible(target, CHATGPT_SELECTORS.toolProgress);
       const copyVisible = await anyVisible(target, CHATGPT_SELECTORS.copyControl);
-      sawActiveGeneration ||= generationActive || toolActive;
 
       if (text !== stableText) {
         stableText = text;
@@ -230,10 +226,7 @@ export async function waitForFinalAssistantResponse(
         text.length > 0 &&
         !generationActive &&
         !toolActive &&
-        (copyVisible ||
-          (Date.now() - stableSince >= stableContentMs &&
-            (sawActiveGeneration ||
-              Date.now() - targetFirstSeenAt >= Math.max(2_000, stableContentMs))))
+        (copyVisible || Date.now() - stableSince >= stableContentMs)
       ) {
         const conversation = observedConversation ?? fallbackConversation;
         if (conversation === null) {
