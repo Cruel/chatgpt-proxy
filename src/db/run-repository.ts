@@ -240,7 +240,7 @@ export class RunRepository {
       .prepare<[], RunRow>(`
         SELECT runs.* FROM runs
         INNER JOIN threads ON threads.id = runs.thread_id
-        WHERE runs.state IN ('failed', 'needs_attention')
+        WHERE runs.state IN ('failed', 'needs_attention', 'timed_out')
           AND runs.operation_type IN ('create_thread', 'send_message')
           AND runs.input_text IS NOT NULL
           AND threads.remote_conversation_id IS NOT NULL
@@ -259,7 +259,11 @@ export class RunRepository {
             )
             OR (
               runs.state = 'needs_attention'
-              AND runs.error_code = 'submission_ambiguous'
+              AND runs.error_code IN ('submission_ambiguous', 'response_timeout')
+            )
+            OR (
+              runs.state = 'timed_out'
+              AND runs.error_code = 'response_timeout'
             )
           )
         ORDER BY runs.created_at, runs.id

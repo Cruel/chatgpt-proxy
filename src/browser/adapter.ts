@@ -8,6 +8,7 @@ export interface BrowserOperationContext {
   readonly runId: string;
   readonly threadId: string;
   readonly signal: AbortSignal;
+  readonly onSubmissionConfirmed?: () => void;
   readonly onConversationIdentified?: (
     conversation: RemoteConversationReference,
   ) => void;

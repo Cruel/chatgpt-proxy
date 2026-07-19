@@ -401,7 +401,7 @@ test("recovers a completed response after the original wait times out", async ()
     });
     await adapter.start();
 
-    const message = "Recover this interrupted response fixture.";
+    const message = "Recover this `interrupted` response fixture.";
     const result = await adapter.sendMessage(
       {
         conversation: {

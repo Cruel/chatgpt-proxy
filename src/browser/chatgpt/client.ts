@@ -181,7 +181,6 @@ export class ChatGptBrowserAdapter implements BrowserAdapter {
   ): Promise<BrowserAdapterResult<FinalAssistantResponse>> {
     return this.recoverSubmittedOperation(
       input.conversation,
-      input.message,
       {
         code: "submission_ambiguous",
         message:
@@ -245,6 +244,7 @@ export class ChatGptBrowserAdapter implements BrowserAdapter {
           return submission;
         }
         submissionConfirmed = true;
+        operationContext.onSubmissionConfirmed?.();
         recoveryConversation = submission.conversation;
 
         const completion = await waitForFinalAssistantResponse(
@@ -279,7 +279,6 @@ export class ChatGptBrowserAdapter implements BrowserAdapter {
     ) {
       const recovered = await this.recoverSubmittedOperation(
         recoveryConversation,
-        input.message,
         result.error,
         operationContext,
       );
@@ -329,6 +328,7 @@ export class ChatGptBrowserAdapter implements BrowserAdapter {
           return submission;
         }
         submissionAttempted = true;
+        context.onSubmissionConfirmed?.();
 
         const completion = await waitForFinalAssistantResponse(
           page,
@@ -354,7 +354,6 @@ export class ChatGptBrowserAdapter implements BrowserAdapter {
     ) {
       const recovered = await this.recoverSubmittedOperation(
         input.conversation,
-        input.message,
         result.error,
         context,
       );
@@ -531,7 +530,6 @@ export class ChatGptBrowserAdapter implements BrowserAdapter {
 
   private recoverSubmittedOperation(
     conversation: RemoteConversationReference,
-    message: string,
     originalFailure: BrowserAdapterFailure,
     context: BrowserOperationContext,
   ): Promise<BrowserAdapterResult<FinalAssistantResponse>> {
@@ -542,7 +540,6 @@ export class ChatGptBrowserAdapter implements BrowserAdapter {
           page,
           this.manager,
           conversation,
-          message,
           originalFailure,
           context,
           {

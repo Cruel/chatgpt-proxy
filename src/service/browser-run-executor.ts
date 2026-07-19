@@ -38,7 +38,7 @@ function failureOutcome(
 
   if (failure.code === "response_timeout") {
     return {
-      outcome: "timed_out",
+      outcome: "needs_attention",
       errorCode: failure.code,
       errorMessage: failure.message,
     };
@@ -224,6 +224,13 @@ export class BrowserRunExecutor implements RunExecutor {
         runId: run.id,
         threadId: thread.id,
         signal: context.signal,
+        onSubmissionConfirmed: () => {
+          context.updateProgress({
+            state: "running",
+            phase: "waiting_for_response",
+            submissionState: "confirmed",
+          });
+        },
         onConversationIdentified: (conversation) => {
           context.persistence.threads.setRemoteMapping(thread.id, {
             conversationId: conversation.conversationId,
@@ -307,6 +314,13 @@ export class BrowserRunExecutor implements RunExecutor {
         runId: run.id,
         threadId: thread.id,
         signal: context.signal,
+        onSubmissionConfirmed: () => {
+          context.updateProgress({
+            state: "running",
+            phase: "waiting_for_response",
+            submissionState: "confirmed",
+          });
+        },
       },
     );
     if (!result.ok) {

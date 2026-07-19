@@ -13,40 +13,61 @@ import {
   waitForFinalAssistantResponse,
 } from "./completion-detector.js";
 import { openExistingConversation } from "./project-navigation.js";
-import {
-  CHATGPT_SELECTORS,
-  firstPopulatedCollection,
-} from "./selectors.js";
-
-function normalizeMessage(value: string): string {
-  return value.replaceAll(/\s+/g, " ").trim();
-}
-
-async function latestUserText(page: Page): Promise<string | null> {
-  const turns = await firstPopulatedCollection(page, CHATGPT_SELECTORS.userTurns);
-  const count = await turns.count();
-  if (count === 0) {
-    return null;
-  }
-  const turn = turns.nth(count - 1);
-  const content = turn
-    .locator(
-      '[data-testid="collapsible-user-message-content"], [data-testid="message-content"], [data-message-content]',
-    )
-    .first();
-  const text = normalizeMessage(
-    await content
-      .innerText()
-      .catch(() => turn.innerText().catch(() => "")),
-  );
-  return text.length === 0 ? null : text;
-}
 
 export interface SubmittedConversationRecoveryOptions {
   readonly navigationTimeoutMs: number;
   readonly responseTimeoutMs: number;
   readonly pollIntervalMs: number;
   readonly stableContentMs: number;
+}
+
+interface ConversationTurnSnapshot {
+  readonly count: number;
+  readonly latestRole: "assistant" | "user" | null;
+}
+
+async function conversationTurnSnapshot(
+  page: Page,
+): Promise<ConversationTurnSnapshot> {
+  const turns = page.locator(
+    '[data-message-author-role="assistant"], [data-message-author-role="user"]',
+  );
+  const count = await turns.count();
+  if (count === 0) {
+    return { count, latestRole: null };
+  }
+  const role = await turns.nth(count - 1).getAttribute("data-message-author-role");
+  return {
+    count,
+    latestRole: role === "assistant" || role === "user" ? role : null,
+  };
+}
+
+async function waitForConversationTurnsToSettle(
+  page: Page,
+  options: SubmittedConversationRecoveryOptions,
+): Promise<ConversationTurnSnapshot> {
+  const deadline = Date.now() + options.navigationTimeoutMs;
+  let snapshot = await conversationTurnSnapshot(page);
+  let stableSince = Date.now();
+
+  while (Date.now() < deadline) {
+    await page.waitForTimeout(options.pollIntervalMs);
+    const next = await conversationTurnSnapshot(page);
+    if (
+      next.count !== snapshot.count ||
+      next.latestRole !== snapshot.latestRole
+    ) {
+      snapshot = next;
+      stableSince = Date.now();
+      continue;
+    }
+    if (Date.now() - stableSince >= options.stableContentMs) {
+      return snapshot;
+    }
+  }
+
+  return snapshot;
 }
 
 /**
@@ -58,7 +79,6 @@ export async function recoverSubmittedConversation(
   page: Page,
   manager: BrowserManager,
   conversation: RemoteConversationReference,
-  expectedMessage: string,
   originalFailure: BrowserAdapterFailure,
   context: BrowserOperationContext,
   options: SubmittedConversationRecoveryOptions,
@@ -72,27 +92,13 @@ export async function recoverSubmittedConversation(
     return { ok: false, error: navigationFailure };
   }
 
-  const normalizedExpectedMessage = normalizeMessage(expectedMessage);
-  const verificationDeadline = Date.now() + options.navigationTimeoutMs;
-  let observedUserText = await latestUserText(page);
-  while (
-    observedUserText !== normalizedExpectedMessage &&
-    Date.now() < verificationDeadline
-  ) {
-    if (context.signal.aborted) {
-      return { ok: false, error: originalFailure };
-    }
-    await page.waitForTimeout(options.pollIntervalMs);
-    observedUserText = await latestUserText(page);
-  }
-  if (observedUserText !== normalizedExpectedMessage) {
+  if (context.signal.aborted) {
     return { ok: false, error: originalFailure };
   }
 
+  const settledTurns = await waitForConversationTurnsToSettle(page, options);
   const observed = await captureSubmissionSnapshot(page);
-  const responseAlreadyPresent =
-    observed.assistantTurnCount >= observed.userTurnCount &&
-    observed.assistantTurnCount > 0;
+  const responseAlreadyPresent = settledTurns.latestRole === "assistant";
   const recoverySnapshot = responseAlreadyPresent
     ? {
         ...observed,
@@ -119,9 +125,6 @@ export async function recoverSubmittedConversation(
   }
   return {
     ok: false,
-    error:
-      completion.error.code === "response_timeout"
-        ? originalFailure
-        : completion.error,
+    error: completion.error,
   };
 }

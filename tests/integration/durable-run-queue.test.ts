@@ -338,7 +338,7 @@ describe("durable run queue", () => {
     await queue.waitForIdle();
   });
 
-  it("rechecks mapped needs-attention runs and skips deleted threads", async () => {
+  it("rechecks mapped recoverable failures and skips deleted threads", async () => {
     const persistence = createPersistence();
     const recoverableThread = persistence.threads.create({
       name: "Recoverable attention",
@@ -374,6 +374,34 @@ describe("durable run queue", () => {
       "Inspect the mapped conversation",
     );
 
+    const timedOutThread = persistence.threads.create({
+      name: "Timed out recovery",
+      state: "error",
+    });
+    persistence.threads.setRemoteMapping(timedOutThread.id, {
+      conversationId: "timed-out-conversation",
+      url: "https://chatgpt.example/c/timed-out-conversation",
+      title: null,
+    });
+    const timedOutRun = persistence.runs.createOrGet({
+      id: "timed-out-run",
+      threadId: timedOutThread.id,
+      operationType: "create_thread",
+      inputText: "Wait for the existing response",
+    }).run;
+    persistence.runs.claimQueued(timedOutRun.id);
+    persistence.runs.transition(timedOutRun.id, {
+      state: "running",
+      phase: "waiting_for_response",
+      submissionState: "confirmed",
+    });
+    persistence.runs.transition(timedOutRun.id, {
+      state: "timed_out",
+      phase: "timed_out",
+      errorCode: "response_timeout",
+      errorMessage: "Timed out waiting for the final response",
+    });
+
     const deletedThread = persistence.threads.create({
       name: "Deleted recovery",
       state: "running",
@@ -402,10 +430,16 @@ describe("durable run queue", () => {
     queue.start();
     await queue.waitForIdle();
 
-    expect(executor.started).toEqual(["recoverable-attention-run"]);
+    expect(executor.started).toEqual([
+      "recoverable-attention-run",
+      "timed-out-run",
+    ]);
     expect(
       persistence.runs.getRequiredById("recoverable-attention-run").state,
     ).toBe("succeeded");
+    expect(persistence.runs.getRequiredById("timed-out-run").state).toBe(
+      "succeeded",
+    );
     expect(persistence.runs.getRequiredById("deleted-active-run").state).toBe(
       "cancelled",
     );

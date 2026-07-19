@@ -32,7 +32,7 @@ const ALLOWED_RUN_TRANSITIONS: Readonly<Record<RunState, readonly RunState[]>> =
   needs_attention: ["queued", "succeeded", "failed", "cancelled"],
   succeeded: [],
   failed: ["queued"],
-  timed_out: [],
+  timed_out: ["queued"],
   interrupted: ["queued", "failed", "cancelled"],
   cancelled: [],
 };
